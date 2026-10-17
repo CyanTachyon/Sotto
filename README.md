@@ -4,6 +4,8 @@ macOS 原生微信阅读助手，支持群聊和私聊。读取本人微信已�
 
 当前版本：**0.0.1 build 1**。这是一个常规 macOS App：安装后出现在「应用程序」、Launchpad、Dock 和 Command+Tab 中；主窗口用于选择会话和阅读回答，微信窗口旁的伴读气泡仍然保留。验证记录见 `docs/verification-0.0.1/readiness.json`。
 
+> 开发阶段版本固定为 **0.0.1**；构建号只用于区分本机构建，不代表稳定发布或功能版本。
+
 ## 安装
 
 推荐使用 `artifacts/Sotto-0.0.1-arm64.dmg`：
