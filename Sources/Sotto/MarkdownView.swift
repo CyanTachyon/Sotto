@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import ChatCore
+import SottoCore
 
 struct MarkdownView: View {
     let text: String

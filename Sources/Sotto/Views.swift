@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import ChatCore
+import SottoCore
 
 private typealias UIState<Value> = SwiftUI.State<Value>
 
@@ -91,7 +91,7 @@ struct FloatView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "bubble.left.and.text.bubble.right.fill").foregroundStyle(AppTheme.accent)
-            Text("微信伴读").font(.system(size: 15, weight: .semibold))
+            Text("Sotto").font(.system(size: 15, weight: .semibold))
             Spacer()
             Button {
                 model.startNewConversation()
@@ -527,7 +527,7 @@ struct ConnectionView: View {
     private var statusDescription: String {
         if model.messageQueryNeedsVerification { return "会话列表已连接，但聊天记录尚未读取成功。重新连接后，请重试刚才的问题。" }
         if model.hasDatabaseConnection { return "已找到 \(model.groups.count) 个有本地记录的会话。以后启动或回到伴读时会自动连接，无需重复验证。" }
-        if model.discoveryState == "permissionRequired" { return "请在系统设置中为当前「群聊伴读」开启完全磁盘访问，然后继续。" }
+        if model.discoveryState == "permissionRequired" { return "请在系统设置中为当前「Sotto」开启完全磁盘访问，然后继续。" }
         if model.connecting || model.detecting { return "正在检查本机数据和已有连接，请稍候。" }
         return "从这台 Mac 上读取你自己的聊天记录。已有连接会自动恢复；首次使用可先查找账号。"
     }

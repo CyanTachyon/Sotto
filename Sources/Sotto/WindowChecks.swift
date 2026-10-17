@@ -1,6 +1,6 @@
 import AppKit
 import CoreGraphics
-import ChatCore
+import SottoCore
 
 /// Pure focus/WindowServer matching checks; no applications or screen contents are queried.
 func focusedWindowTargetChecks() -> [String: Bool] {

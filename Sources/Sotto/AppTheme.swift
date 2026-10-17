@@ -32,7 +32,7 @@ enum AppTheme {
     static let errorBackground = color("errorBackground", light: 0xFDECE9, dark: 0x462B2B)
 
     private static func color(_ name: String, light: UInt32, dark: UInt32) -> Color {
-        Color(nsColor: NSColor(name: NSColor.Name("cn.local.ChatFloat.theme." + name)) { appearance in
+        Color(nsColor: NSColor(name: NSColor.Name("moe.tachyon.sotto.theme." + name)) { appearance in
             let value = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
             return NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
                            green: CGFloat((value >> 8) & 0xFF) / 255,

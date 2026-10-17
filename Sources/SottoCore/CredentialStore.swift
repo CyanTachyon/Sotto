@@ -25,7 +25,7 @@ public final class CredentialStore: @unchecked Sendable {
 
     private init() {
         parent = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("cn.local.ChatFloat", isDirectory: true)
+            .appendingPathComponent("moe.tachyon.sotto", isDirectory: true)
         directoryName = "credentials"; production = true
     }
     /// Tests cannot redirect production storage or place credentials outside a temporary subtree.

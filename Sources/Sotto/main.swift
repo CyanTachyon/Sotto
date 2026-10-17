@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
-import ChatCore
+import SottoCore
 import Darwin
 
 // Local read-chain check: stdin only, counts only; no stored credential or network access.
@@ -46,7 +46,7 @@ if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--credential
 if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--control" {
     let command = CommandLine.arguments[2]
     guard ["status", "surface-status", "assist", "permissions", "connect", "focus", "hide", "quit", "follow-status", "accessibility"].contains(command) else { exit(2) }
-    DistributedNotificationCenter.default().postNotificationName(.init("cn.local.ChatFloat.control"), object: nil, userInfo: ["command": command, "bundlePath": Bundle.main.bundleURL.path], deliverImmediately: true)
+    DistributedNotificationCenter.default().postNotificationName(.init("moe.tachyon.sotto.control"), object: nil, userInfo: ["command": command, "bundlePath": Bundle.main.bundleURL.path], deliverImmediately: true)
     exit(0)
 }
 
@@ -55,7 +55,7 @@ if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--control" {
 /// only; it prevents accidental duplicate menu-bar apps and duplicate bubble panels.
 private func acquireSingleInstanceLock() -> Int32? {
     let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("cn.local.ChatFloat", isDirectory: true)
+        .appendingPathComponent("moe.tachyon.sotto", isDirectory: true)
     try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                              attributes: [.posixPermissions: 0o700])
     let path = directory.appendingPathComponent("app.lock").path
@@ -70,9 +70,11 @@ let helperInvocation = CommandLine.arguments.contains { argument in
     ["--reader-check", "--store-db-keys", "--credential-status", "--control",
      "--companion-window-check", "--experience-check", "--appearance-check",
      "--ui-test", "--synthetic-model-check", "--appearance-preview"].contains(argument)
-} || Bundle.main.bundleIdentifier == "cn.local.ChatFloat.ExperiencePreview"
+} || Bundle.main.bundleIdentifier == "moe.tachyon.sotto.ExperiencePreview"
+// Migrate before the single-instance lock creates the new support directory.
+if !helperInvocation { LegacyMigration.run() }
 if !helperInvocation, acquireSingleInstanceLock() == nil {
-    if let running = NSRunningApplication.runningApplications(withBundleIdentifier: "cn.local.ChatFloat")
+    if let running = NSRunningApplication.runningApplications(withBundleIdentifier: "moe.tachyon.sotto")
         .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
         running.activate(options: [])
     }
@@ -135,7 +137,7 @@ final class MainWindow: NSWindow {
     var connectionWindow: AuxiliaryWindow?
     var settingsWindow: AuxiliaryWindow?
     var sourcesWindow: AuxiliaryWindow?
-    let experiencePreview = Bundle.main.bundleIdentifier == "cn.local.ChatFloat.ExperiencePreview"
+    let experiencePreview = Bundle.main.bundleIdentifier == "moe.tachyon.sotto.ExperiencePreview"
     let appearancePreview = CommandLine.arguments.contains("--appearance-preview")
     var testMode: Bool { experiencePreview || appearancePreview || CommandLine.arguments.contains("--companion-window-check") || CommandLine.arguments.contains("--experience-check") || CommandLine.arguments.contains("--appearance-check") || CommandLine.arguments.contains("--ui-test") || CommandLine.arguments.contains("--synthetic-model-check") }
     lazy var model = AppModel(testMode: testMode)
@@ -144,7 +146,7 @@ final class MainWindow: NSWindow {
         // separately identified bundle before constructing its model.
         if appearancePreview {
             guard let identifier = Bundle.main.bundleIdentifier,
-                  identifier != "cn.local.ChatFloat" else { exit(2) }
+                  identifier != "moe.tachyon.sotto" else { exit(2) }
         }
         if experiencePreview || appearancePreview { try? model.loadExperiencePreview() }
         if appearancePreview {
@@ -168,15 +170,15 @@ final class MainWindow: NSWindow {
         model.$showSettings.removeDuplicates().sink { [weak self] visible in self?.showSettings(visible) }.store(in: &observations)
         model.$showSources.removeDuplicates().sink { [weak self] visible in self?.showSources(visible) }.store(in: &observations)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        status.button?.image = NSImage(systemSymbolName: "bubble.left.and.text.bubble.right", accessibilityDescription: "群聊伴读")
+        status.button?.image = NSImage(systemSymbolName: "bubble.left.and.text.bubble.right", accessibilityDescription: "Sotto")
         let menu = NSMenu()
         menu.addItem(withTitle: "显示主窗口", action: #selector(showMainWindow), keyEquivalent: "")
         menu.addItem(withTitle: "打开微信旁的伴读", action: #selector(showPanel), keyEquivalent: "")
         menu.addItem(withTitle: "连接设置…", action: #selector(connection), keyEquivalent: "")
         menu.addItem(withTitle: "外观与设置…", action: #selector(settings), keyEquivalent: ",")
-        menu.addItem(.separator()); menu.addItem(withTitle: "退出群聊伴读", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(.separator()); menu.addItem(withTitle: "退出 Sotto", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items { item.target = self }; status.menu = menu
-        controlObserver = DistributedNotificationCenter.default().addObserver(forName: .init("cn.local.ChatFloat.control"), object: nil, queue: .main) { [weak self] notification in
+        controlObserver = DistributedNotificationCenter.default().addObserver(forName: .init("moe.tachyon.sotto.control"), object: nil, queue: .main) { [weak self] notification in
             MainActor.assumeIsolated {
                 if let target = notification.userInfo?["bundlePath"] as? String, target != Bundle.main.bundleURL.path { return }
                 if let command = notification.userInfo?["command"] as? String { self?.handleControl(command) }
@@ -223,7 +225,7 @@ final class MainWindow: NSWindow {
         let desired = fixture ? NSSize(width: min(400, available.width - 32), height: min(600, available.height - 80))
                              : NSSize(width: min(460, available.width - 40), height: min(720, available.height - 90))
         panel = MainWindow(contentRect: NSRect(origin: .zero, size: desired), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        panel.title = fixture ? "群聊伴读 · 合成检查" : "群聊伴读"
+        panel.title = fixture ? "Sotto · 合成检查" : "Sotto"
         panel.titleVisibility = fixture ? .hidden : .visible
         panel.titlebarAppearsTransparent = fixture
         panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false; panel.collectionBehavior = []
@@ -231,7 +233,7 @@ final class MainWindow: NSWindow {
         panel.contentView = NSHostingView(rootView: FloatView(model: model,
             onConversationPickerChange: { _ in },
             showsCollapseControl: fixture))
-        if !fixture { _ = panel.setFrameAutosaveName("ChatFloatMainWindow") }
+        if !fixture { _ = panel.setFrameAutosaveName("SottoMainWindow") }
         panel.center()
         panel.setFrame(panel.constrainFrameRect(panel.frame, to: screen), display: false)
         model.isStandaloneConversationVisible = { [weak self] in
@@ -258,7 +260,7 @@ final class MainWindow: NSWindow {
         if visible {
             companion?.hide()
             if connectionWindow == nil {
-                connectionWindow = AuxiliaryWindow(title: "连接微信 · 群聊伴读", size: NSSize(width: 560, height: 580), root: AnyView(ConnectionView(model: model))) { [weak self] in self?.model.showConnection = false }
+                connectionWindow = AuxiliaryWindow(title: "连接微信 · Sotto", size: NSSize(width: 560, height: 580), root: AnyView(ConnectionView(model: model))) { [weak self] in self?.model.showConnection = false }
             }
             connectionWindow?.present()
         } else { connectionWindow?.hide(); resumeCompanionAfterAuxiliary() }
@@ -267,7 +269,7 @@ final class MainWindow: NSWindow {
         if visible {
             companion?.hide()
             if settingsWindow == nil {
-                settingsWindow = AuxiliaryWindow(title: "外观与设置 · 群聊伴读", size: NSSize(width: 520, height: 620), root: AnyView(SettingsView(model: model))) { [weak self] in self?.model.showSettings = false }
+                settingsWindow = AuxiliaryWindow(title: "外观与设置 · Sotto", size: NSSize(width: 520, height: 620), root: AnyView(SettingsView(model: model))) { [weak self] in self?.model.showSettings = false }
             }
             settingsWindow?.present()
         } else { settingsWindow?.hide(); resumeCompanionAfterAuxiliary() }
@@ -276,7 +278,7 @@ final class MainWindow: NSWindow {
         if visible {
             companion?.hide()
             if sourcesWindow == nil {
-                sourcesWindow = AuxiliaryWindow(title: "原消息 · 群聊伴读", size: NSSize(width: 500, height: 540), root: AnyView(SourcesView(model: model))) { [weak self] in self?.model.showSources = false }
+                sourcesWindow = AuxiliaryWindow(title: "原消息 · Sotto", size: NSSize(width: 500, height: 540), root: AnyView(SourcesView(model: model))) { [weak self] in self?.model.showSources = false }
             }
             sourcesWindow?.present()
         } else { sourcesWindow?.hide(); resumeCompanionAfterAuxiliary() }

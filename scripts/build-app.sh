@@ -2,13 +2,13 @@
 set -euo pipefail
 SOURCE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DELIVERY_ROOT="$SOURCE_ROOT/artifacts"
-OUTPUT_APP="${CHATFLOAT_APP_OUTPUT:-$DELIVERY_ROOT/群聊伴读.app}"
+OUTPUT_APP="${SOTTO_APP_OUTPUT:-$DELIVERY_ROOT/Sotto.app}"
 python3 "$SOURCE_ROOT/scripts/local-signing.py" preflight
 # Native SwiftPM works with this CLT-only installation. Explicit UIState typealias avoids SDK27 macro packaging bug.
-swift build --build-system native -c release --package-path "$SOURCE_ROOT" --product ChatFloat
+swift build --build-system native -c release --package-path "$SOURCE_ROOT" --product Sotto
 BINARY_DIR="$(swift build --build-system native -c release --package-path "$SOURCE_ROOT" --show-bin-path)"
 mkdir -p "$(dirname "$OUTPUT_APP")"
-STAGING_ROOT="$(mktemp -d "$(dirname "$OUTPUT_APP")/.chatfloat-build.XXXXXX")"
+STAGING_ROOT="$(mktemp -d "$(dirname "$OUTPUT_APP")/.sotto-build.XXXXXX")"
 BACKUP_APP=""
 cleanup() {
   local result=$?
@@ -25,11 +25,11 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-APP="$STAGING_ROOT/群聊伴读.app"
+APP="$STAGING_ROOT/Sotto.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Backend" "$APP/Contents/Resources/Frameworks" "$APP/Contents/Resources/ThirdParty"
 if [ ! -f "$SOURCE_ROOT/Resources/AppIcon.icns" ]; then python3 "$SOURCE_ROOT/scripts/make-icon.py"; fi
 cp "$SOURCE_ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-cp "$BINARY_DIR/ChatFloat" "$APP/Contents/MacOS/ChatFloat"
+cp "$BINARY_DIR/Sotto" "$APP/Contents/MacOS/Sotto"
 for name in bootstrap.py capture_keys.py reader.py sqlcipher_probe.py media.py; do cp "$SOURCE_ROOT/Backend/$name" "$APP/Contents/Resources/Backend/$name"; done
 cp "$SOURCE_ROOT/ThirdParty/"*.txt "$APP/Contents/Resources/ThirdParty/"
 SQLCIPHER_PREFIX="$(brew --prefix sqlcipher)"
@@ -47,14 +47,14 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>群聊伴读</string>
-<key>CFBundleDisplayName</key><string>群聊伴读</string>
-<key>CFBundleIdentifier</key><string>cn.local.ChatFloat</string>
-<key>CFBundleExecutable</key><string>ChatFloat</string>
+<key>CFBundleName</key><string>Sotto</string>
+<key>CFBundleDisplayName</key><string>Sotto</string>
+<key>CFBundleIdentifier</key><string>moe.tachyon.sotto</string>
+<key>CFBundleExecutable</key><string>Sotto</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-<key>CFBundleShortVersionString</key><string>0.6.0</string>
-<key>CFBundleVersion</key><string>22</string>
+<key>CFBundleShortVersionString</key><string>0.7.0</string>
+<key>CFBundleVersion</key><string>23</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
@@ -62,7 +62,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>LSMultipleInstancesProhibited</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
-<key>NSHumanReadableCopyright</key><string>群聊伴读 · 本机微信阅读助手</string>
+<key>NSHumanReadableCopyright</key><string>Sotto · 本机微信阅读助手</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST

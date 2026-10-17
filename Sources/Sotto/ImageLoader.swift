@@ -1,7 +1,7 @@
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
-import ChatCore
+import SottoCore
 
 struct ImagePreparation: Sendable { let images: [ModelImage]; let summary: String }
 enum ImageLoader {

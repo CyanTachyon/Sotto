@@ -1,5 +1,5 @@
 import AppKit
-import ChatCore
+import SottoCore
 import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
@@ -420,7 +420,7 @@ struct AnswerTurn: Identifiable {
     func assistSetup(openPermissions: Bool = true, presentConnection: Bool = false) {
         guard !detecting, !initializing, !connecting else { return }
         if presentConnection { showConnection = true }; detecting = true
-        discoveryState = "checking"; discoveryMessage = "正在由群聊伴读自动检测本机微信数据…"
+        discoveryState = "checking"; discoveryMessage = "正在由 Sotto 自动检测本机微信数据…"
         writeConnectionStatus()
         Task {
             let result = await Task.detached { AccountDiscovery.scan() }.value
@@ -435,7 +435,7 @@ struct AnswerTurn: Identifiable {
                     writeConnectionStatus()
                 }
             case .permissionRequired:
-                discoveryMessage = "macOS 暂未允许群聊伴读读取微信数据。请给“群聊伴读”开启完全磁盘访问，不需要给 Codex 授权。"
+                discoveryMessage = "macOS 暂未允许 Sotto 读取微信数据。请给“Sotto”开启完全磁盘访问，不需要给 Codex 授权。"
                 setupLog = "授权完成后点击“授权后继续检测”，应用会自动选择唯一账号并检查已有密钥。"
                 writeConnectionStatus()
                 if openPermissions { openDataPermissionSettings() }
@@ -493,7 +493,7 @@ struct AnswerTurn: Identifiable {
     func writeConnectionStatus() {
         guard let local else { return }
         let action: String
-        if discoveryState == "permissionRequired" { action = "enable_full_disk_access_for_ChatFloat" }
+        if discoveryState == "permissionRequired" { action = "enable_full_disk_access_for_Sotto" }
         else if discoveryState == "checking" { action = "wait_for_app_data_access_prompt" }
         else if !discoveredAccounts.isEmpty && root.isEmpty { action = "select_own_account" }
         else if hasDatabaseConnection { action = "database_connected" }

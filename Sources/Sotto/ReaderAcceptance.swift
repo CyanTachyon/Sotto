@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 enum ReaderAcceptance {
     struct Input: Decodable {

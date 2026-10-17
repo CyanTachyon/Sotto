@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 @MainActor func connectionModelChecks() async throws -> [String: Bool] {
     let defaults = UserDefaults.standard

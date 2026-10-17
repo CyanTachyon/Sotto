@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "ChatFloat",
+    name: "Sotto",
     platforms: [.macOS("27.0")],
-    products: [.executable(name: "ChatFloat", targets: ["ChatFloat"])],
+    products: [.executable(name: "Sotto", targets: ["Sotto"])],
     targets: [
-        .target(name: "ChatCore"),
-        .executableTarget(name: "ChatFloat", dependencies: ["ChatCore"]),
-        .executableTarget(name: "CoreChecks", dependencies: ["ChatCore"], path: "Checks")
+        .target(name: "SottoCore"),
+        .executableTarget(name: "Sotto", dependencies: ["SottoCore"]),
+        .executableTarget(name: "SottoChecks", dependencies: ["SottoCore"], path: "Checks")
     ],
     swiftLanguageModes: [.v5]
 )

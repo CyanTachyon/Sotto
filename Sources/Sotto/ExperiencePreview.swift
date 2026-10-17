@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 @MainActor extension AppModel {
     func loadExperiencePreview() throws {

@@ -1,6 +1,6 @@
 import Foundation
 import Darwin
-import ChatCore
+import SottoCore
 
 func checkCredentialStore() throws {
     func require(_ value: Bool, _ label: String) throws { if !value { throw ChatError.invalid(label) } }

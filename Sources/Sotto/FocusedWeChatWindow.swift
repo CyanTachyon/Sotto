@@ -1,6 +1,6 @@
 import AppKit
 import ApplicationServices
-import ChatCore
+import SottoCore
 
 /// A fresh observation of WeChat's actual AX focused window. No main-window or
 /// previously observed window is substituted when the focus is unavailable.

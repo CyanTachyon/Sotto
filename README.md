@@ -1,24 +1,30 @@
-# WeChatAI · 群聊伴读
+# Sotto
 
 macOS 原生微信阅读助手，支持群聊和私聊。读取本人微信已同步的本地记录，把选定会话和时间范围交给兼容 Chat Completions 的模型问答。
 
-当前版本：**0.6.0 build 22**。这是一个常规 macOS App：安装后出现在「应用程序」、Launchpad、Dock 和 Command+Tab 中；主窗口用于选择会话和阅读回答，微信窗口旁的伴读气泡仍然保留。验证记录见 `docs/verification-0.6.0/readiness.json`。
+当前版本：**0.7.0 build 23**。这是一个常规 macOS App：安装后出现在「应用程序」、Launchpad、Dock 和 Command+Tab 中；主窗口用于选择会话和阅读回答，微信窗口旁的伴读气泡仍然保留。验证记录见 `docs/verification-0.7.0/readiness.json`。
 
 ## 安装
 
-推荐使用 `artifacts/群聊伴读-0.6.0-arm64.dmg`：
+推荐使用 `artifacts/Sotto-0.7.0-arm64.dmg`：
 
-1. 双击 DMG，把「群聊伴读.app」拖入「Applications」。
+1. 双击 DMG，把「Sotto.app」拖入「Applications」。
 2. 从「应用程序」或 Launchpad 打开。
 3. 首次连接微信时按应用内提示授予“完全磁盘访问”（读取本地数据库）和“辅助功能”（跟随窗口标题）。
 
-本构建使用本机自签名身份，**没有 Apple Developer ID，也没有公证**。在其他 Mac 上首次打开时，系统可能提示“无法验证开发者”：请在 Finder 中右键应用选择“打开”，或到“系统设置 → 隐私与安全性”中允许打开；不要关闭 Gatekeeper 或 SIP。更新应用后，如系统重新询问权限，请在系统设置中移除旧条目，再重新添加当前「群聊伴读.app」并授权。
+本构建使用本机自签名身份，**没有 Apple Developer ID，也没有公证**。在其他 Mac 上首次打开时，系统可能提示“无法验证开发者”：请在 Finder 中右键应用选择“打开”，或到“系统设置 → 隐私与安全性”中允许打开；不要关闭 Gatekeeper 或 SIP。更新应用后，如系统重新询问权限，请在系统设置中移除旧条目，再重新添加当前「Sotto.app」并授权。
 
 当前构建为 arm64、macOS 27；`LSMinimumSystemVersion` 为 27.0。
 
+## 从旧版升级
+
+Sotto 的 bundle identifier 是 `moe.tachyon.sotto`，与旧的 `cn.local.ChatFloat` 不同。首次启动 Sotto 时会把旧应用支持目录（模型配置、逐库密钥、导入缓存）复制到新目录，并迁移常用偏好；旧目录不会删除，可继续保留旧版应用作回退。
+
+由于 bundle identifier 和签名身份都变了，系统会把 Sotto 视为新的应用：**完全磁盘访问和辅助功能权限需要重新授予**；旧应用的权限条目不会被 Sotto 继承，也不会自动删除。
+
 ## 使用方式
 
-- 启动后显示「群聊伴读」主窗口；Dock、Launchpad 和 Command+Tab 中可见。菜单栏气泡图标仍可快速打开伴读、连接、设置或退出。
+- 启动后显示「Sotto」主窗口；Dock、Launchpad 和 Command+Tab 中可见。菜单栏气泡图标仍可快速打开伴读、连接、设置或退出。
 - 主窗口用于选择会话、时间范围、提问和回看回答；微信聊天窗口旁的气泡/浮窗仍然保留。连接、设置和原消息使用独立辅助窗口。
 - 主窗口内部切换会话、展开/收起伴读、点回微信或切换应用的行为与之前一致；图片等非聊天窗口不显示气泡。
 - 群聊和私聊统一出现在会话选择器中。列表只包含本地消息表中确有记录的会话，不把仅有共同群的成员资料当作私聊。
@@ -29,7 +35,7 @@ macOS 原生微信阅读助手，支持群聊和私聊。读取本人微信已�
 - **新对话**清空当前会话的 AI 回答、草稿、上下文和参考快照；生成中使用会先取消当前请求。会话、时间范围和连接配置保留，不删除微信记录；切走再返回不会恢复被清空的内容。
 - 当前进程内按会话保留回答与草稿，收起不清空。退出或重启前请复制需要长期保存的内容。
 
-> **输入法桌面行为说明**：0.5.2 曾通过“仅菜单栏 accessory 模式”修复中文输入法候选窗停留在旧桌面的问题。0.6.0 改为常规 App 并保留主窗口；这条输入法行为尚未在真实微信/真实输入法上重新验证，需要在正式使用前手动复核。
+> **输入法桌面行为说明**：0.5.2 曾通过“仅菜单栏 accessory 模式”修复中文输入法候选窗停留在旧桌面的问题。0.7.0 改为常规 App 并保留主窗口；这条输入法行为尚未在真实微信/真实输入法上重新验证，需要在正式使用前手动复核。
 
 ## 连接与模型
 
@@ -45,7 +51,7 @@ macOS 原生微信阅读助手，支持群聊和私聊。读取本人微信已�
 
 外观可选“跟随系统”“浅色”“深色”。跟随系统指跟随 Mac 外观；微信也跟随系统时两者同步，微信单独设置主题时可手动选择匹配外观。
 
-数据库与模型密钥使用**本机普通文件**，目录为 `~/Library/Application Support/cn.local.ChatFloat/credentials`，目录权限 `0700`、文件权限 `0600`。文件不额外加密；能访问当前 Mac 用户文件的程序也可能读到它们。应用不使用钥匙串，不提供旧钥匙串迁移、兼容或回退逻辑，不会为读取密钥请求系统认证。初次使用在应用内填写或导入所需密钥。
+数据库与模型密钥使用**本机普通文件**，目录为 `~/Library/Application Support/moe.tachyon.sotto/credentials`，目录权限 `0700`、文件权限 `0600`。文件不额外加密；能访问当前 Mac 用户文件的程序也可能读到它们。应用不使用钥匙串，不提供旧钥匙串迁移、兼容或回退逻辑，不会为读取密钥请求系统认证。初次使用在应用内填写或导入所需密钥。
 
 账号之间、模型服务之间的密钥分别保存；文件原子替换，删除一项不影响其他项。清理导入记录不删除连接密钥。配置、密钥、聊天记录和构建私钥均不进入源码或应用分发包。
 
@@ -61,17 +67,17 @@ macOS 原生微信阅读助手，支持群聊和私聊。读取本人微信已�
 
 ## 开发与构建
 
-- `Sources/ChatCore`：时间快照、模型请求、凭据文件、导入与 Markdown 数据。
-- `Sources/ChatFloat`：AppKit/SwiftUI 界面、主窗口、窗口跟随和数据库连接。
+- `Sources/SottoCore`：时间快照、模型请求、凭据文件、导入与 Markdown 数据。
+- `Sources/Sotto`：AppKit/SwiftUI 界面、主窗口、窗口跟随和数据库连接。
 - `Backend`：SQLCipher 只读查询与图片解码。
 - `Checks`、应用内显式检查参数：合成测试，正式界面没有模拟对话入口。
 - `Resources/AppIcon.icns`：应用图标；`scripts/make-icon.py` 可重新生成。
-- `artifacts`：当前 0.6.0 App、DMG、源码包及 `SHA256.json`。
+- `artifacts`：当前 0.7.0 App、DMG、源码包及 `SHA256.json`。
 - `work`、`.build`：本机中间产物，不分发。
 
 构建使用 Command Line Tools、SwiftPM、Python，以及 Homebrew 的 sqlcipher、zstd、openssl@4；脚本把所需动态库放入应用，不要求安装完整 Xcode。
 
-固定的本机签名材料独立保存在 `~/Library/Application Support/cn.local.ChatFloat.build-signing`。初次创建后，构建只复用它；身份缺失或不一致会停止，不能自动换证书或退回临时签名。它用于本机开发更新的身份连续性，不能替代公开分发所需的 Apple Developer ID 与公证。
+固定的本机签名材料独立保存在 `~/Library/Application Support/moe.tachyon.sotto.build-signing`。初次创建后，构建只复用它；身份缺失或不一致会停止，不能自动换证书或退回临时签名。它用于本机开发更新的身份连续性，不能替代公开分发所需的 Apple Developer ID 与公证。
 
 ```sh
 ./scripts/check.sh
@@ -85,4 +91,4 @@ python3 scripts/local-signing.py check
 
 `build-app.sh` 在临时目录完成签名和验证后才替换输出，失败或可处理的中断会保留旧包。`build-dmg.sh` 生成带 Applications 快捷方式的标准拖拽安装 DMG，并用同一本机身份签名 DMG。
 
-未验证/限制：没有 Developer ID 与公证；未在真实微信、真实中文输入法、真实模型服务上重新执行本轮 0.6.0 验收；0.5.2 的输入法 Space 修复需在常规 App 形态下重新复核。详见 `docs/verification-0.6.0/readiness.json`。
+未验证/限制：没有 Developer ID 与公证；未在真实微信、真实中文输入法、真实模型服务上重新执行本轮 0.7.0 验收；0.5.2 的输入法 Space 修复需在常规 App 形态下重新复核。详见 `docs/verification-0.7.0/readiness.json`。

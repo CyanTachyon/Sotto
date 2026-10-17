@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 /// The external database operations used by connection setup and scoped reads. Checks replace these
 /// with synthetic data so recovery and account races never read real credential files.

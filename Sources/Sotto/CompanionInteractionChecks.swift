@@ -1,5 +1,5 @@
 import AppKit
-import ChatCore
+import SottoCore
 import QuartzCore
 
 /// Exercise focus changes and animation races using only this process's windows.

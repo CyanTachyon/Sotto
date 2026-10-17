@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 /// Exercises model state only, with fictional records and in-memory database callbacks.
 /// No request reaches a model, credential files, or the database adapter.

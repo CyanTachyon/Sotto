@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 func checkConnectionRecovery() throws {
     func require(_ value: Bool, _ message: String) throws {

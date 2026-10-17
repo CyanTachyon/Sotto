@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
-import ChatCore
+import SottoCore
 
 @MainActor extension AppDelegate {
     /// Entirely synthetic native rendering; never discovers accounts or reads credentials.
     func runAppearanceChecks(output: String) async {
         let directory = URL(fileURLWithPath: output)
         var checks: [String: Bool] = [:]
-        let suite = "cn.local.ChatFloat.AppearanceCheck." + UUID().uuidString
+        let suite = "moe.tachyon.sotto.AppearanceCheck." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         let savedPreferences = ["selectedDatabaseGroupV3", "followCurrentConversationV4"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         do {

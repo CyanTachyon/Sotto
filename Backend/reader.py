@@ -32,7 +32,7 @@ def key_for(keys, root, path):
 @contextmanager
 def snapshot(path, key):
     # SQLite online backup reads committed WAL pages consistently. Destination remains encrypted.
-    with tempfile.TemporaryDirectory(prefix='chatfloat-db-') as temp:
+    with tempfile.TemporaryDirectory(prefix='sotto-db-') as temp:
         os.chmod(temp, 0o700)
         copied = Path(temp)/'snapshot.db'
         with DB(path, key) as source:

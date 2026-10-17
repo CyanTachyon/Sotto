@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 @MainActor func followModelChecks() async throws -> [String: Bool] {
     let model = AppModel(testMode: true)

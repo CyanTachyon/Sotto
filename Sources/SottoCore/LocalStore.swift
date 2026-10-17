@@ -5,7 +5,7 @@ public final class LocalStore {
     public let directory: URL
     public init(directory: URL? = nil) throws {
         self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("cn.local.ChatFloat", isDirectory: true)
+            .appendingPathComponent("moe.tachyon.sotto", isDirectory: true)
         try FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: self.directory.path)
     }

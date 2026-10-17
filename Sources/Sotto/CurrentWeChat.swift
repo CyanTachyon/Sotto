@@ -1,6 +1,6 @@
 import AppKit
 import ApplicationServices
-import ChatCore
+import SottoCore
 
 /// Reads only focused-window/header/selected-conversation metadata. Chat content is never read here.
 @MainActor enum CurrentWeChat {
@@ -23,7 +23,7 @@ import ChatCore
                 return focusedWindow != nil
                     ? "已跟随微信窗口标题 · 无需截图"
                     : "已跟随微信当前会话 · 点击助手后仍保留微信目标"
-            case "permissionRequired": return "尚未授予群聊伴读辅助功能权限，无法识别当前会话"
+            case "permissionRequired": return "尚未授予 Sotto 辅助功能权限，无法识别当前会话"
             case "notRunning": return "微信未运行，当前会话读取已暂停"
             case "noWindow": return "没有可确认的微信当前窗口，请在微信打开目标会话"
             case "unsupportedWindow": return "当前窗口未确认为聊天窗口，已暂停跟随；请返回微信聊天窗口"

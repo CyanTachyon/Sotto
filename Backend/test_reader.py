@@ -280,7 +280,7 @@ class DatabaseTests(unittest.TestCase):
             image=next(m for m in available['messages'] if m['type']==3)
             self.assertEqual(image['image']['path'],str(image_file.resolve()))
             self.assertEqual(image['database'],'message_0.db')
-            binary=os.environ.get('CHATFLOAT_READER_CHECK_BINARY')
+            binary=os.environ.get('SOTTO_READER_CHECK_BINARY')
             if binary:
                 for output,expected_images in [(with_image,0),(available,1)]:
                     payload={'result':output,'root':str(root.resolve()),'start':100,'end':200,'expectedCount':6108,'expectedImages':expected_images}

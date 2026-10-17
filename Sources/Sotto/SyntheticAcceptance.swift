@@ -1,6 +1,6 @@
 import AppKit
 import ImageIO
-import ChatCore
+import SottoCore
 
 @MainActor enum SyntheticAcceptance {
     static func run(config: ModelConfig, output: URL) async {

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 private typealias ViewState<Value> = SwiftUI.State<Value>
 import Combine
-import ChatCore
+import SottoCore
 import QuartzCore
 
 private final class CompanionPanel: NSPanel {
@@ -24,7 +24,7 @@ private struct CompanionBubble: View {
                 .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                 .opacity(hovered ? 1 : 0.82)
         }.buttonStyle(.plain).help("打开当前微信会话的伴读面板")
-            .accessibilityLabel("打开微信伴读")
+            .accessibilityLabel("打开 Sotto")
             .onHover { hovered = $0 }.frame(width: 48, height: 48)
     }
 }
@@ -106,7 +106,7 @@ private struct CompanionBubble: View {
             window.isMovableByWindowBackground = false
             window.animationBehavior = .none
         }
-        panel.title = "微信伴读"
+        panel.title = "Sotto"
         panel.minSize = NSSize(width: 360, height: 460); panel.delegate = self
         let wrapper = NSView(frame: CGRect(origin: .zero, size: panel.contentLayoutRect.size))
         wrapper.wantsLayer = true

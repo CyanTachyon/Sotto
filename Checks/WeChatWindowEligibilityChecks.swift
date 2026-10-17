@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 func checkWeChatWindowEligibility() throws {
     let standard = WeChatWindowMetadata(role: "AXWindow", subrole: "AXStandardWindow", isModal: false, hasDocument: false)

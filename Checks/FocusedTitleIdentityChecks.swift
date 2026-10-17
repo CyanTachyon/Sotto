@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 func checkFocusedTitleIdentity() throws {
     func chat(_ id: String, _ aliases: String...) -> TitleCandidate { .init(id: id, aliases: aliases) }

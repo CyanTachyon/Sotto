@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import ChatCore
+import SottoCore
 
 @MainActor extension AppDelegate {
     func runExperienceChecks(output: URL) {

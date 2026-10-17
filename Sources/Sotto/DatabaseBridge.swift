@@ -1,6 +1,6 @@
 import AppKit
 import ApplicationServices
-import ChatCore
+import SottoCore
 import CryptoKit
 import Darwin
 
@@ -50,7 +50,7 @@ struct DatabaseBridge {
         // `swift run`/debug binaries have no app resources. Only those
         // non-release builds may use the repository Backend; the signed release
         // bundle must never send credentials to a script from the current directory.
-        guard Bundle.main.bundleIdentifier != "cn.local.ChatFloat" else { return nil }
+        guard Bundle.main.bundleIdentifier != "moe.tachyon.sotto" else { return nil }
         let candidate = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("Backend", isDirectory: true)
         guard FileManager.default.fileExists(atPath: candidate.appendingPathComponent("reader.py").path) else { return nil }

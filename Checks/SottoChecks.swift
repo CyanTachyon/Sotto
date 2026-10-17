@@ -1,5 +1,5 @@
 import Foundation
-import ChatCore
+import SottoCore
 
 
 // Minimal portable assertions: Apple's CLT distribution here does not include XCTest.
@@ -233,6 +233,31 @@ private final class CoreTests: PortableCheckCase {
         try store.save([session, ChatImporter.demo()]); try XCTAssertEqual(store.load().count, 1)
         XCTAssertNil(store.imageURL("../../secret.png")); try store.clear(); try XCTAssertEqual(store.load().count, 0)
     }
+    func testLegacyIdentityMigrationCopiesConfigAndCredentials() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("sotto-migration-" + UUID().uuidString)
+        let oldSuite = "sotto.migration.old." + UUID().uuidString
+        let newSuite = "sotto.migration.new." + UUID().uuidString
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldDefaults = try XCTUnwrap(UserDefaults(suiteName: oldSuite))
+        let newDefaults = try XCTUnwrap(UserDefaults(suiteName: newSuite))
+        defer {
+            oldDefaults.removePersistentDomain(forName: oldSuite)
+            newDefaults.removePersistentDomain(forName: newSuite)
+        }
+        oldDefaults.set("legacy-root", forKey: "databaseRoot")
+        oldDefaults.set(true, forKey: "followCurrentConversationV4")
+        let oldDirectory = root.appendingPathComponent(oldSuite, isDirectory: true)
+        let credentials = oldDirectory.appendingPathComponent("credentials", isDirectory: true)
+        try FileManager.default.createDirectory(at: credentials, withIntermediateDirectories: true)
+        try Data("synthetic-credential".utf8).write(to: credentials.appendingPathComponent("key.txt"))
+        LegacyMigration.run(applicationSupport: root, defaults: newDefaults, oldBundleIdentifier: oldSuite)
+        XCTAssertEqual(newDefaults.string(forKey: "databaseRoot"), "legacy-root")
+        XCTAssertEqual(newDefaults.object(forKey: "followCurrentConversationV4") as? Bool, true)
+        let migrated = root.appendingPathComponent(LegacyMigration.newBundleIdentifier, isDirectory: true)
+            .appendingPathComponent("credentials/key.txt")
+        let migratedText = try String(contentsOf: migrated, encoding: .utf8)
+        XCTAssertEqual(migratedText, "synthetic-credential")
+    }
 }
 
 private final class MockProtocol: URLProtocol {
@@ -337,11 +362,12 @@ private final class NetworkTests: PortableCheckCase {
             ("prompt scope / injection boundary", tests.testPromptContainsOnlySelectedScopeAndUntrustedPolicy),
             ("endpoint transport security", tests.testEndpointSecurity),
             ("local storage / path guard", tests.testStoreKeepsOnlyImportedAndPathGuard),
+            ("legacy ChatFloat identity migration", tests.testLegacyIdentityMigrationCopiesConfigAndCredentials),
             ("duplicate / unknown / exact group title", tests.testDuplicateGroupTitlesFailClosed),
             ("automatic account metadata discovery / multiple accounts", tests.testAccountDiscoveryMetadataAndMultipleAccounts)]
         for (name, run) in checks { do { let before = failures; try run(); print(failures == before ? "PASS " + name : "FAIL " + name) } catch { XCTFail(name + " threw: " + error.localizedDescription) } }
         do { let before = failures; try await NetworkTests().testRealRequestValidationErrorsAndCancellation(); print(failures == before ? "PASS model HTTP / schema / consent / cancellation" : "FAIL network") } catch { XCTFail(error.localizedDescription) }
-        if let endpoint = ProcessInfo.processInfo.environment["CHATFLOAT_LOOPBACK_TEST"], endpoint.hasPrefix("http://127.0.0.1:") {
+        if let endpoint = ProcessInfo.processInfo.environment["SOTTO_LOOPBACK_TEST"], endpoint.hasPrefix("http://127.0.0.1:") {
             do {
                 let (session, window) = try tests.fixture()
                 let snapshot = try Snapshot(session: session, window: window, includeUnknown: false)
@@ -351,7 +377,7 @@ private final class NetworkTests: PortableCheckCase {
                 print("PASS actual loopback HTTP request and grounded response (synthetic fixture server)")
             } catch { XCTFail("loopback: " + error.localizedDescription) }
         }
-        if let endpoint = ProcessInfo.processInfo.environment["CHATFLOAT_STREAM_TEST"], endpoint.hasPrefix("http://127.0.0.1:") {
+        if let endpoint = ProcessInfo.processInfo.environment["SOTTO_STREAM_TEST"], endpoint.hasPrefix("http://127.0.0.1:") {
             do { let before = failures; try await NetworkTests().testLoopbackStreaming(endpoint); print(failures == before ? "PASS real loopback SSE timing / UTF8 splitting / interrupted partial / JSON fallback / cancellation" : "FAIL loopback stream") }
             catch { XCTFail("stream loopback: " + error.localizedDescription) }
         }

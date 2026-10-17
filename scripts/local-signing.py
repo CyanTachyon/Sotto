@@ -18,9 +18,9 @@ import subprocess
 import sys
 import tempfile
 
-STATE = Path.home() / "Library/Application Support/cn.local.ChatFloat.build-signing"
-APP_ID = "cn.local.ChatFloat"
-CERT_NAME = "ChatFloat Local Release Signing"
+STATE = Path.home() / "Library/Application Support/moe.tachyon.sotto.build-signing"
+APP_ID = "moe.tachyon.sotto"
+CERT_NAME = "Sotto Local Release Signing"
 KEYCHAIN_FILE = "signing.keychain-db"
 
 # The create/inspect helper requests no interaction and sets the complete ACL
@@ -126,7 +126,7 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         SecTrustedApplicationRef app = NULL; SecAccessRef access = NULL;
         check(SecTrustedApplicationCreateFromPath("/usr/bin/codesign", &app), "codesign ACL");
         NSArray *apps = @[(__bridge id)app];
-        check(SecAccessCreate(CFSTR("ChatFloat local build signing"), (__bridge CFArrayRef)apps, &access), "restricted access");
+        check(SecAccessCreate(CFSTR("Sotto local build signing"), (__bridge CFArrayRef)apps, &access), "restricted access");
         // Construct the complete initial policy before import. Never change
         // an existing key's ACL: that operation can trigger SecurityAgent UI.
         addApplePartition(access);
@@ -192,7 +192,7 @@ def write_private(path, data):
 
 def helper(action):
     # Compile only our own small helper; no injected code or private APIs.
-    with tempfile.TemporaryDirectory(prefix="chatfloat-signing-helper-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="sotto-signing-helper-") as temporary:
         directory = Path(temporary)
         source, binary = directory / "helper.m", directory / "helper"
         source.write_text(HELPER_SOURCE)
@@ -243,7 +243,7 @@ distinguished_name=dn
 x509_extensions=extensions
 prompt=no
 [dn]
-CN=ChatFloat Local Release Signing
+CN=Sotto Local Release Signing
 [extensions]
 basicConstraints=critical,CA:TRUE
 keyUsage=critical,digitalSignature,keyCertSign,cRLSign
@@ -296,7 +296,7 @@ def sign_app(path):
 
 def check_synthetic():
     value = ready()
-    with tempfile.TemporaryDirectory(prefix="chatfloat-signing-check-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="sotto-signing-check-") as temporary:
         directory = Path(temporary)
         binaries, requirements, hashes = [], [], []
         for version in (1, 2):
@@ -313,7 +313,7 @@ def check_synthetic():
         different = binaries[0].read_bytes() != binaries[1].read_bytes()
         for binary, requirement in zip(binaries, reversed(requirements)):
             run(["/usr/bin/codesign", "--verify", "--strict", "-R", "=" + requirement, binary])
-        negative = run(["/usr/bin/codesign", "--verify", "--strict", "-R", '=identifier "cn.local.ChatFloat.WrongIdentity"', binaries[0]], allowed_failure=True)
+        negative = run(["/usr/bin/codesign", "--verify", "--strict", "-R", '=identifier "moe.tachyon.sotto.WrongIdentity"', binaries[0]], allowed_failure=True)
         if not different or hashes[0] == hashes[1] or requirements[0] != requirements[1] or negative.returncode == 0:
             raise SigningError("Synthetic identity continuity checks failed.")
         print(json.dumps({"differentBinaries": True, "differentCDHashes": True, "sameDesignatedRequirement": True, "crossVerification": True, "wrongIdentifierRejected": True, "certificateSHA1": value["certificateSHA1"], "designatedRequirement": requirements[0], "tccContinuityTested": False}, indent=2))
