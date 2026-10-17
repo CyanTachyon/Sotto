@@ -46,7 +46,7 @@ private final class CoreTests: PortableCheckCase {
     func testTimeFilterInclusiveAndUnknownExcluded() throws {
         let (session, window) = try fixture()
         let s = try Snapshot(session: session, window: window, includeUnknown: false)
-        XCTAssertEqual(s.messages.count, 3); XCTAssertEqual(s.excludedUnknownCount, 1)
+        XCTAssertEqual(s.messages.count, 3)
         XCTAssertEqual(s.messages.first?.timestamp, window.start); XCTAssertEqual(s.messages.last?.timestamp, window.end)
         let included = try Snapshot(session: session, window: window, includeUnknown: true)
         XCTAssertEqual(included.messages.count, 4); XCTAssertEqual(included.includedUnknownCount, 1)
@@ -62,6 +62,32 @@ private final class CoreTests: PortableCheckCase {
         XCTAssertThrowsError(try ChatSession(id: UUID(), name: "另一个群", origin: .imported, sourceDescription: "fixture", messages: session.messages))
         XCTAssertThrowsError(try ChatSession(id: session.id, name: "群", origin: .imported, sourceDescription: "fixture", messages: [session.messages[0], session.messages[0]]))
     }
+    func testDecodingRevalidatesPersistedSessionsAndWindows() throws {
+        let (session, window) = try fixture()
+        let encoded = try JSONEncoder().encode(session)
+        XCTAssertNoThrow(try JSONDecoder().decode(ChatSession.self, from: encoded))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["name"] = "   "
+        XCTAssertThrowsError(try JSONDecoder().decode(ChatSession.self, from: JSONSerialization.data(withJSONObject: object)))
+        object["name"] = "人工群"
+        var messages = try XCTUnwrap(object["messages"] as? [[String: Any]])
+        messages[1]["id"] = messages[0]["id"]
+        object["messages"] = messages
+        XCTAssertThrowsError(try JSONDecoder().decode(ChatSession.self, from: JSONSerialization.data(withJSONObject: object)))
+        let windowData = try JSONEncoder().encode(window)
+        var windowObject = try XCTUnwrap(JSONSerialization.jsonObject(with: windowData) as? [String: Any])
+        let start = try XCTUnwrap(windowObject["start"] as? Double)
+        windowObject["end"] = start - 10
+        XCTAssertThrowsError(try JSONDecoder().decode(TimeWindow.self, from: JSONSerialization.data(withJSONObject: windowObject)))
+    }
+    func testCompletionStreamBounds() throws {
+        var line = CompletionStream(maximumLineBytes: 8, maximumEventBytes: 64)
+        var lineRejected = false
+        do { for _ in 0..<20 { _ = try line.byte(97) } } catch { lineRejected = true }
+        XCTAssertTrue(lineRejected)
+        var event = CompletionStream(maximumLineBytes: 100, maximumEventBytes: 8)
+        XCTAssertThrowsError(try event.line("data: 123456789"))
+    }
     func testLateCompletionFenceSwitchCancelAndNewRequest() throws {
         var f = RequestFence(); let a = UUID(), b = UUID(); f.select(a)
         let first = try f.begin(sessionID: a); XCTAssertTrue(f.accepts(token: first, sessionID: a))
@@ -70,28 +96,12 @@ private final class CoreTests: PortableCheckCase {
         let third = try f.begin(sessionID: b); let fourth = try f.begin(sessionID: b)
         XCTAssertFalse(f.accepts(token: third, sessionID: b)); XCTAssertTrue(f.accepts(token: fourth, sessionID: b))
     }
-    func testSnapshotReferenceNamespace() throws {
-        let (session, window) = try fixture(); let snapshot = try Snapshot(session: session, window: window, includeUnknown: false)
-        let reference = snapshot.referenceID(at: 0)
-        XCTAssertEqual(snapshot.canonicalReferenceID(reference), reference)
-        XCTAssertEqual(snapshot.canonicalReferenceID(" [" + reference.uppercased() + "] "), reference)
-        XCTAssertEqual(snapshot.referenceMap[reference]?.text, snapshot.messages[0].text)
-        let other = try Snapshot(session: session, window: window, includeUnknown: false)
-        for raw in ["M1", "M01", "M0", "Sdeadbeef-M1", other.referenceID(at: 0), reference + " extra",
-                    String(reference.dropLast()) + "0", String(reference.dropLast()) + "01"] {
-            XCTAssertNil(snapshot.canonicalReferenceID(raw))
-        }
-    }
     func testNaturalAnswerPreservesMarkdownAndLiteralJSON() throws {
-        let (session, window) = try fixture(); let snapshot = try Snapshot(session: session, window: window, includeUnknown: false)
         for text in ["## 结论\n\n**自然回答**，结果尚待确认。\n\n```swift\nlet a = 1\n```",
                      #"{"sections":[{"text":"这是要展示的 JSON 示例","source_ids":["M1"]}],"insufficient":"原样展示"}"#,
                      "```json\n{\"claims\":[{\"text\":\"JSON 示例\"}]}\n```"] {
-            let result = try GroundedAnswer.validate(Data(text.utf8), snapshot: snapshot)
-            XCTAssertEqual(result.claims.count, 1)
-            XCTAssertEqual(result.claims[0].text, text)
-            XCTAssertTrue(result.claims[0].references.isEmpty)
-            XCTAssertTrue(result.insufficient.isEmpty)
+            let result = try GroundedAnswer(validating: Data(text.utf8))
+            XCTAssertEqual(result.text, text)
         }
     }
     func testFollowMetadataMissingConflictAndIncomplete() {
@@ -107,10 +117,9 @@ private final class CoreTests: PortableCheckCase {
     }
     func testNoisyEventNarrativeAndFollowup() throws {
         let snapshot = try SyntheticScenario.snapshot()
-        let answer = try GroundedAnswer.validate(SyntheticScenario.narrative(snapshot), snapshot: snapshot)
-        XCTAssertEqual(answer.claims.count, 1)
-        XCTAssertTrue(answer.claims[0].text.contains("预发")); XCTAssertTrue(answer.claims[0].text.contains("线上"))
-        XCTAssertTrue(answer.claims[0].text.contains("负责人未定")); XCTAssertFalse(answer.claims.map(\.text).joined().contains("咖啡"))
+        let answer = try GroundedAnswer(validating: SyntheticScenario.narrative(snapshot))
+        XCTAssertTrue(answer.text.contains("预发")); XCTAssertTrue(answer.text.contains("线上"))
+        XCTAssertTrue(answer.text.contains("负责人未定")); XCTAssertFalse(answer.text.contains("咖啡"))
         var config = ModelConfig(); config.model = "synthetic"
         let body = try Prompt.body(snapshot: snapshot, question: "所以15点还开吗？", history: [Followup(question: "过去半小时发生了什么？", answer: answer)], config: config)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -119,9 +128,9 @@ private final class CoreTests: PortableCheckCase {
         let user = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(messages[1]["content"]!.utf8)) as? [String: Any])
         XCTAssertEqual((user["prior_turns"] as? [Any])?.count, 1)
         let prior = try XCTUnwrap(user["prior_turns"] as? [[String: Any]])
-        XCTAssertEqual(prior[0]["answer"] as? String, answer.claims[0].text)
-        let result = try GroundedAnswer.validate(Data("已改到 15:30，客户已同意。".utf8), snapshot: snapshot)
-        XCTAssertEqual(result.claims.first?.text, "已改到 15:30，客户已同意。")
+        XCTAssertEqual(prior[0]["answer"] as? String, answer.text)
+        let result = try GroundedAnswer(validating: Data("已改到 15:30，客户已同意。".utf8))
+        XCTAssertEqual(result.text, "已改到 15:30，客户已同意。")
 
     }
     func testLongNaturalAndVisionRequests() throws {
@@ -144,12 +153,16 @@ private final class CoreTests: PortableCheckCase {
         let data = try JSONSerialization.jsonObject(with: Data((parts[0]["text"] as! String).utf8)) as! [String: Any]
         XCTAssertEqual((data["messages"] as! [Any]).count, 6100)
         for raw in ["大家认为这算是‘完成’了。", "他说\"可以开始\"。这是自然概括。", "无引用回答", "{bad json", "```json\n{}\n```"] {
-            let answer = try GroundedAnswer.validate(Data(raw.utf8), snapshot: snapshot)
-            XCTAssertEqual(answer.claims.first?.text, raw)
+            let answer = try GroundedAnswer(validating: Data(raw.utf8))
+            XCTAssertEqual(answer.text, raw)
         }
         let decoded = try JSONDecoder().decode(ModelConfig.self, from: JSONEncoder().encode(config))
         XCTAssertEqual(decoded, config)
-        XCTAssertThrowsError(try JSONDecoder().decode(ModelConfig.self, from: Data(#"{"endpoint":"https://example.com","model":"incomplete","consentEndpoint":"https://example.com"}"#.utf8)))
+        let legacy = try JSONDecoder().decode(ModelConfig.self, from: Data(#"{"endpoint":"https://example.com","model":"incomplete","consentEndpoint":"https://example.com"}"#.utf8))
+        XCTAssertEqual(legacy.endpoint, "https://example.com")
+        XCTAssertEqual(legacy.supportsVision, false)
+        XCTAssertEqual(legacy.contextTokens, 128000)
+        XCTAssertEqual(legacy.imageBudgetMB, 20)
 
     }
     func testImportRequiresExplicitZoneAndPreservesSource() throws {
@@ -260,7 +273,7 @@ private final class NetworkTests: PortableCheckCase {
         XCTAssertTrue(values.count > 3)
         XCTAssertTrue((times.last?.timeIntervalSince(times.first!) ?? 0) > 0.2)
         XCTAssertTrue(values.last?.contains("END_STREAM_OK") == true)
-        XCTAssertTrue(answer.claims.first?.text.contains("你好，世界") == true)
+        XCTAssertTrue(answer.text.contains("你好，世界"))
         config.model = "disconnect"
         let interrupted = StreamObservations()
         do { _ = try await ModelClient().ask(snapshot: snapshot, question: "合成中断测试", history: [], config: config, key: "") { await interrupted.append($0) }; XCTFail("must reject incomplete stream") }
@@ -268,7 +281,7 @@ private final class NetworkTests: PortableCheckCase {
         let (partial, _) = await interrupted.state(); XCTAssertTrue(partial.last?.isEmpty == false)
         config.model = "json-fallback"
         let fallback = try await ModelClient().ask(snapshot: snapshot, question: "合成兼容测试", history: [], config: config, key: "") { _ in }
-        XCTAssertTrue(fallback.claims.first?.text.contains("END_STREAM_OK") == true)
+        XCTAssertTrue(fallback.text.contains("END_STREAM_OK"))
         config.model = "synthetic-stream"
         let cancelConfig = config
         let cancelled = Task { try await ModelClient().ask(snapshot: snapshot, question: "合成停止测试", history: [], config: cancelConfig, key: "") { _ in } }
@@ -288,7 +301,7 @@ private final class NetworkTests: PortableCheckCase {
         catch { XCTAssertTrue(error.localizedDescription.contains("不兼容")) }
         MockProtocol.mode = 2
         let result = try await client.ask(snapshot: snapshot, question: "提问", history: [], config: config, key: "")
-        XCTAssertEqual(result.claims.count, 1)
+        XCTAssertFalse(result.text.isEmpty)
         MockProtocol.mode = 3
         let task = Task { try await client.ask(snapshot: snapshot, question: "提问", history: [], config: config, key: "") }
         try await Task.sleep(nanoseconds: 30_000_000)
@@ -313,8 +326,9 @@ private final class NetworkTests: PortableCheckCase {
             ("time / unknown / coverage", tests.testTimeFilterInclusiveAndUnknownExcluded),
             ("empty / reversed range", tests.testNoMessagesAndBadRangeReject),
             ("conversation / message identity", tests.testCrossConversationAndDuplicateIdentityReject),
+            ("decoded sessions/windows revalidate", tests.testDecodingRevalidatesPersistedSessionsAndWindows),
+            ("SSE line and event bounds", tests.testCompletionStreamBounds),
             ("switch / cancel / late completion", tests.testLateCompletionFenceSwitchCancelAndNewRequest),
-            ("snapshot-qualified reference IDs / foreign reference rejection", tests.testSnapshotReferenceNamespace),
             ("natural Markdown and literal JSON remain model text", tests.testNaturalAnswerPreservesMarkdownAndLiteralJSON),
             ("AX metadata missing / conflict / private chat / incomplete", tests.testFollowMetadataMissingConflictAndIncomplete),
             ("noisy event narrative / scoped natural followup", tests.testNoisyEventNarrativeAndFollowup),
@@ -333,7 +347,7 @@ private final class NetworkTests: PortableCheckCase {
                 let snapshot = try Snapshot(session: session, window: window, includeUnknown: false)
                 var config = ModelConfig(); config.endpoint = endpoint; config.model = "synthetic-fixture"; config.consentEndpoint = endpoint
                 let answer = try await ModelClient().ask(snapshot: snapshot, question: "人工接口测试", history: [], config: config, key: "")
-                XCTAssertEqual(answer.claims.count, 1)
+                XCTAssertFalse(answer.text.isEmpty)
                 print("PASS actual loopback HTTP request and grounded response (synthetic fixture server)")
             } catch { XCTFail("loopback: " + error.localizedDescription) }
         }

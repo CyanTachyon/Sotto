@@ -28,13 +28,12 @@ public struct ChatMessage: Codable, Identifiable, Equatable, Sendable {
     public let source: String
     public let sourceLine: Int
     public let observedAt: Date
-    public let confidence: Float?
     public let image: ChatImage?
     public init(id: UUID = UUID(), sessionID: UUID, timestamp: Date?, sender: String?, text: String,
-                source: String, sourceLine: Int, observedAt: Date = Date(), confidence: Float? = nil, image: ChatImage? = nil) {
+                source: String, sourceLine: Int, observedAt: Date = Date(), image: ChatImage? = nil) {
         self.id = id; self.sessionID = sessionID; self.timestamp = timestamp; self.sender = sender
         self.text = text; self.source = source; self.sourceLine = sourceLine
-        self.observedAt = observedAt; self.confidence = confidence; self.image = image
+        self.observedAt = observedAt; self.image = image
     }
 }
 
@@ -45,18 +44,31 @@ public struct ChatSession: Codable, Identifiable, Equatable, Sendable {
     public let origin: Origin
     public let createdAt: Date
     public let sourceDescription: String
-    public let headerText: String?
-    public let imageName: String?
     public let messages: [ChatMessage]
     public init(id: UUID, name: String, origin: Origin, createdAt: Date = Date(), sourceDescription: String,
-                headerText: String? = nil, imageName: String? = nil, messages: [ChatMessage]) throws {
+                messages: [ChatMessage]) throws {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               messages.allSatisfy({ $0.sessionID == id }), Set(messages.map(\.id)).count == messages.count else {
             throw ChatError.invalid("会话身份或消息身份不一致，已拒绝载入。")
         }
         self.id = id; self.name = name; self.origin = origin; self.createdAt = createdAt
-        self.sourceDescription = sourceDescription; self.headerText = headerText
-        self.imageName = imageName; self.messages = messages
+        self.sourceDescription = sourceDescription; self.messages = messages
+    }
+    private enum CodingKeys: String, CodingKey {
+        case id, name, origin, createdAt, sourceDescription, messages
+    }
+    /// Decoding goes through the same validation as construction. This keeps a
+    /// damaged or edited sessions.json from bypassing name/message identity checks.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(UUID.self, forKey: .id)
+        let name = try container.decode(String.self, forKey: .name)
+        let origin = try container.decode(Origin.self, forKey: .origin)
+        let createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        let sourceDescription = try container.decodeIfPresent(String.self, forKey: .sourceDescription) ?? ""
+        let messages = try container.decode([ChatMessage].self, forKey: .messages)
+        try self.init(id: id, name: name, origin: origin, createdAt: createdAt,
+                      sourceDescription: sourceDescription, messages: messages)
     }
     public var unknownCount: Int { messages.filter { $0.timestamp == nil }.count }
     public var coverageLabel: String {
@@ -83,6 +95,12 @@ public struct TimeWindow: Codable, Equatable, Sendable {
         guard start <= end else { throw ChatError.invalid("开始时间必须早于或等于结束时间。") }
         self.start = start; self.end = end
     }
+    private enum CodingKeys: String, CodingKey { case start, end }
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(start: try container.decode(Date.self, forKey: .start),
+                      end: try container.decode(Date.self, forKey: .end))
+    }
     public func contains(_ date: Date) -> Bool { date >= start && date <= end }
 }
 
@@ -90,30 +108,14 @@ public struct Snapshot: Identifiable, Sendable {
     public let id: UUID
     public let sessionID: UUID
     public let sessionName: String
-    public let origin: ChatSession.Origin
     public let createdAt: Date
     public let window: TimeWindow
     public let messages: [ChatMessage]
-    public let excludedUnknownCount: Int
     public let includedUnknownCount: Int
     public let coverage: String
     public func referenceID(at index: Int) -> String { "S" + id.uuidString.prefix(8).lowercased() + "-M\(index + 1)" }
     public var textBytes: Int { messages.reduce(0) { $0 + $1.text.utf8.count } }
     public var estimatedTokens: Int { messages.reduce(0) { $0 + $1.text.count + 40 } }
-    public var referenceMap: [String: ChatMessage] {
-        Dictionary(uniqueKeysWithValues: messages.enumerated().map { (referenceID(at: $0.offset), $0.element) })
-    }
-    public func canonicalReferenceID(_ raw: String) -> String? {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.hasPrefix("["), value.hasSuffix("]") { value = String(value.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces) }
-        let prefix = "s" + id.uuidString.prefix(8).lowercased() + "-"
-        value = value.lowercased()
-        guard value.hasPrefix(prefix) else { return nil }
-        value = String(value.dropFirst(prefix.count))
-        guard value.range(of: "^m[1-9][0-9]{0,8}$", options: .regularExpression) != nil,
-              let n = Int(value.dropFirst()), n > 0, n <= messages.count else { return nil }
-        return referenceID(at: n - 1)
-    }
     public init(session: ChatSession, window: TimeWindow, includeUnknown: Bool, now: Date = Date()) throws {
         guard session.messages.allSatisfy({ $0.sessionID == session.id }) else {
             throw ChatError.invalid("发现其他会话消息，已阻止请求。")
@@ -125,14 +127,13 @@ public struct Snapshot: Identifiable, Sendable {
         guard !selected.isEmpty else {
             throw ChatError.invalid("所选范围没有可用的已知时间消息。可调整范围、导入记录，或明确勾选附加时间未知文字。")
         }
-        id = UUID(); sessionID = session.id; sessionName = session.name; origin = session.origin
+        id = UUID(); sessionID = session.id; sessionName = session.name
         createdAt = now; self.window = window
         messages = selected.enumerated().sorted { a, b in
             let x = a.element.timestamp ?? .distantFuture, y = b.element.timestamp ?? .distantFuture
             return x == y ? a.offset < b.offset : x < y
         }.map(\.element)
         includedUnknownCount = selected.filter { $0.timestamp == nil }.count
-        excludedUnknownCount = includeUnknown ? 0 : session.unknownCount
         coverage = session.coverageLabel
     }
 }

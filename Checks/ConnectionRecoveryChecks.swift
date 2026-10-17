@@ -26,6 +26,7 @@ func checkConnectionRecovery() throws {
     recovery.resume(now: start.addingTimeInterval(100))
     try require(recovery.begin(now: start.addingTimeInterval(100)), "a later unlock/foreground event can recover")
     recovery.succeeded()
+    try require(recovery.attemptCount == 0, "a healthy connection must reset the retry budget")
     recovery.resume(now: start.addingTimeInterval(5_000))
     try require(!recovery.begin(now: start.addingTimeInterval(5_000)), "healthy connections must never re-read databases on polling")
     try require(recovery.begin(now: start.addingTimeInterval(5_000), userInitiated: true), "explicit verification remains available")
@@ -33,4 +34,7 @@ func checkConnectionRecovery() throws {
     recovery.resume(now: start.addingTimeInterval(10_000))
     try require(!recovery.begin(now: start.addingTimeInterval(10_000)), "deleting credentials must suspend background attempts")
     try require(recovery.begin(now: start.addingTimeInterval(10_000), userInitiated: true), "explicit reconnect resumes a suspended connection")
+    var suspended = ConnectionRecovery(now: start); _ = suspended.begin(now: start); suspended.failed(now: start); suspended.suspend()
+    suspended.resetForReconnect(now: start.addingTimeInterval(100))
+    try require(!suspended.begin(now: start.addingTimeInterval(100)), "query-failure reset must preserve an explicit credential suspension")
 }

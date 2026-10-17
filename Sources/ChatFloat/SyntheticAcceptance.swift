@@ -16,8 +16,8 @@ import ChatCore
             let answer = try await client.ask(snapshot: snapshot, question: question, history: [], config: textConfig, key: key)
             let follow = try await client.ask(snapshot: snapshot, question: "用一句自然中文告诉我会议几点开，不要引用编号。", history: [Followup(question: question, answer: answer)], config: textConfig, key: key)
             report["longRecordCount"] = snapshot.messages.count; report["longTextBytes"] = snapshot.textBytes
-            report["longAnswer"] = answer.claims.map(\.text).joined(separator: "\n")
-            report["naturalFollowup"] = follow.claims.map(\.text).joined(separator: "\n")
+            report["longAnswer"] = answer.text
+            report["naturalFollowup"] = follow.text
             let base = output.deletingLastPathComponent().appendingPathComponent("synthetic-media")
             let root = base.appendingPathComponent("db_storage")
             let chat = "synthetic@chatroom"
@@ -43,10 +43,10 @@ import ChatCore
             let prepared = await ImageLoader.prepare(snapshot:visionSnapshot,root:root.path,config:visionConfig,chat:chat)
             guard prepared.images.count == 1 else { throw ChatError.invalid("Synthetic image preparation failed: " + prepared.summary) }
             let vision = try await client.ask(snapshot:visionSnapshot,question:"图片左边和右边分别是什么颜色和形状？上方文字是什么？直接自然回答。",history:[],config:visionConfig,key:key,images:prepared.images)
-            let visionText = vision.claims.map(\.text).joined(separator:"\n")
+            let visionText = vision.text
             report["visionAnswer"] = visionText; report["imagePreparation"] = prepared.summary
-            let longText = answer.claims.map(\.text).joined()
-            let checks = ["over800Messages":snapshot.messages.count>800,"over80KB":snapshot.textBytes>80000,"firstAndLastIncluded":longText.contains("ALPHA") && longText.contains("OMEGA"),"naturalAnswerDisplayed":!longText.isEmpty,"followupDisplayed":!follow.claims.isEmpty,"imageActuallyAttached":prepared.images.count==1,"visionIdentifiedColorsAndText":visionText.contains("红") && visionText.contains("蓝") && visionText.contains("4729")]
+            let longText = answer.text
+            let checks = ["over800Messages":snapshot.messages.count>800,"over80KB":snapshot.textBytes>80000,"firstAndLastIncluded":longText.contains("ALPHA") && longText.contains("OMEGA"),"naturalAnswerDisplayed":!longText.isEmpty,"followupDisplayed":!follow.text.isEmpty,"imageActuallyAttached":prepared.images.count==1,"visionIdentifiedColorsAndText":visionText.contains("红") && visionText.contains("蓝") && visionText.contains("4729")]
             report["checks"] = checks; report["passed"] = checks.values.allSatisfy{$0}
             report["modelRequestCount"] = 3
             try JSONSerialization.data(withJSONObject:report,options:[.sortedKeys,.prettyPrinted]).write(to:output,options:.atomic)

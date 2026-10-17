@@ -2,20 +2,14 @@
 #!/usr/bin/env python3
 """SQLCipher 4 read-only probe. No key extraction; no plaintext export.
 
-Keys enter through a mode-0600 file, never command-line arguments.
+Keys enter through private stdin IPC, never command-line arguments.
 Production opens are SQLITE_OPEN_READONLY; only self-test creates toy databases.
 """
-import argparse
 import ctypes as C
 import ctypes.util
-import hashlib
-import json
 import os
 from pathlib import Path
 import re
-import shutil
-import tempfile
-import time
 
 
 def library():

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ChatFloat",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("27.0")],
     products: [.executable(name: "ChatFloat", targets: ["ChatFloat"])],
     targets: [
         .target(name: "ChatCore"),

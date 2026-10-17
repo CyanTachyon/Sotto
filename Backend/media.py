@@ -69,7 +69,7 @@ def decode(data,key_candidates):
             return bytes(x^xor for x in data)
     raise ValueError('unsupported_format')
 
-def locate(root,chat,stamp,body,packed):
+def locate(root,chat,body,packed):
     """Only hashes explicitly carried by this row, under this conversation's directories."""
     hashes=[]
     for h in re.findall(rb'(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])',packed):
@@ -123,4 +123,6 @@ def perform(q):
 
 if __name__=='__main__':
     try:print(json.dumps(perform(json.load(sys.stdin))))
-    except Exception:print(json.dumps({'images':[],'error':'image_read_failed'}))
+    except Exception:
+        print(json.dumps({'images':[],'error':'image_read_failed'}))
+        raise SystemExit(2)

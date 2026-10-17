@@ -28,7 +28,7 @@ import ChatCore
 
         可以提问以测试本机合成流式响应。
         """
-        turns = [AnswerTurn(question: "这段讨论有哪些重点？", answer: try GroundedAnswer.validate(Data(markdown.utf8), snapshot: snapshot), snapshot: snapshot)]
+        turns = [AnswerTurn(question: "这段讨论有哪些重点？", answer: try GroundedAnswer(validating: Data(markdown.utf8)), snapshot: snapshot)]
         config.endpoint = "http://127.0.0.1:27654/chat/completions"; config.model = "synthetic-stream"
         config.consentEndpoint = config.endpoint
         question = "请用 Markdown 总结这段虚构讨论。"

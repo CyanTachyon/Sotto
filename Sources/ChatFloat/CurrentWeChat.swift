@@ -63,7 +63,6 @@ import ChatCore
     }
     private static func children(_ node: AXUIElement) -> [AXUIElement] { attribute(node, kAXChildrenAttribute) as? [AXUIElement] ?? [] }
     static func focusedWindowMetadata() -> FocusedWeChatWindow.Snapshot? { FocusedWeChatWindow.capture() }
-    static func group(from groups: [DBGroup]) -> DBGroup? { detect(from: groups).group }
     static func detect(from groups: [DBGroup]) -> Detection {
         func empty(_ state: String) -> Detection { Detection(group: nil, state: state, visited: 0, evidenceCount: 0, roleCounts: [:]) }
         guard trusted else { return empty("permissionRequired") }

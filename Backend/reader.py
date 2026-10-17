@@ -208,7 +208,7 @@ def perform(request):
                 elif kind == 3:
                     body = decompress(bytes.fromhex(row['body'] or ''))
                     packed = bytes.fromhex(row.get('packed') or '')
-                    image_path = locate(root,chat,int(row['create_time']),body,packed)
+                    image_path = locate(root,chat,body,packed)
                     image = {'path':image_path,'status':'本地图片待处理' if image_path else '本地附件未找到'}
                     text = '[图片]'
                 elif kind & 0xffffffff == 49:
@@ -244,7 +244,8 @@ def main():
     except Exception as error:
         # Only fixed codes, never sqlite messages, SQL, keys, account paths or message content.
         code = str(error)
-        allowed = {'missing_key','account_mismatch','select_db_storage','group_not_in_account','conversation_not_in_account','no_message_shards',
+        allowed = {'missing_key','invalid_keys','account_mismatch','select_db_storage','conversation_not_in_account','no_message_shards',
+                   'unsupported_command','invalid_range','snapshot_init_failed','snapshot_failed','snapshot_finish_failed',
                    'snapshot_busy_timeout','compressed_text_invalid','compressed_text_too_large'}
         print(json.dumps({'error': code if code in allowed else 'database_read_failed'})); return 2
     return 0

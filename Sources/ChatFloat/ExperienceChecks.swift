@@ -28,12 +28,12 @@ import ChatCore
                     }
                 }
                 checks["incremental_content_before_completion"] = seen.count > 2
-                checks["complete_answer_displayed"] = model.turns.count == 2 && model.turns.last?.answer.claims.first?.text.contains("END_STREAM_OK") == true
+                checks["complete_answer_displayed"] = model.turns.count == 2 && model.turns.last?.answer.text.contains("END_STREAM_OK") == true
                 checks["completion_preserves_new_input_draft"] = model.question == "生成期间继续编辑的新草稿"
                 model.question = "停止合成生成"; model.ask()
                 for _ in 0..<100 { if !model.streamingText.isEmpty { break }; try await Task.sleep(for: .milliseconds(30)) }
                 model.cancel()
-                checks["cancel_preserves_partial"] = !model.busy && model.turns.count == 3 && model.turns.last?.answer.claims.first?.text.contains("已停止生成") == true
+                checks["cancel_preserves_partial"] = !model.busy && model.turns.count == 3 && model.turns.last?.answer.text.contains("已停止生成") == true
                 model.question = "切换前的合成问题"; model.ask()
                 for _ in 0..<100 { if !model.streamingText.isEmpty { break }; try await Task.sleep(for: .milliseconds(30)) }
                 model.selectGroup("preview-group@chatroom")

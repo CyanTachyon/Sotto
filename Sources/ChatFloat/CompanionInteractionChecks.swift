@@ -25,7 +25,7 @@ import QuartzCore
     model.question = "合成草稿：失焦后仍保留"; model.streamingText = "合成流式回答"; model.busy = true
     do {
         let snapshot = try SyntheticScenario.snapshot()
-        let answer = try GroundedAnswer.validate(SyntheticScenario.narrative(snapshot), snapshot: snapshot)
+        let answer = try GroundedAnswer(validating: SyntheticScenario.narrative(snapshot))
         model.turns = [AnswerTurn(question: "合成问题", answer: answer, snapshot: snapshot)]
     } catch { return ["interaction_fixture_setup": false] }
     let turnIDs = model.turns.map(\.id)

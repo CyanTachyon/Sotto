@@ -6,15 +6,27 @@ public struct CompletionStream {
     public private(set) var finished = false
     public private(set) var lengthLimited = false
     private var dataLines: [String] = []
+    private var dataBytes = 0
     private var pendingLine = Data()
     private var previousCR = false
     private var firstLine = true
-    public init() {}
+    private let maximumLineBytes: Int
+    private let maximumEventBytes: Int
+    public init(maximumLineBytes: Int = 1_048_576, maximumEventBytes: Int = 4_194_304) {
+        self.maximumLineBytes = max(1, maximumLineBytes)
+        self.maximumEventBytes = max(1, maximumEventBytes)
+    }
     /// Foundation's AsyncBytes.lines drops empty lines; SSE requires preserving them.
     @discardableResult public mutating func byte(_ byte: UInt8) throws -> Bool {
         if byte == 10 && previousCR { previousCR = false; return false }
         previousCR = byte == 13
-        guard byte == 10 || byte == 13 else { pendingLine.append(byte); return false }
+        guard byte == 10 || byte == 13 else {
+            pendingLine.append(byte)
+            guard pendingLine.count <= maximumLineBytes else {
+                throw ChatError.invalid("模型流式响应单行过长，已停止读取。")
+            }
+            return false
+        }
         try flushLine(); return true
     }
     private mutating func flushLine() throws {
@@ -27,6 +39,10 @@ public struct CompletionStream {
         if line.isEmpty { try dispatch(); return }
         if line.hasPrefix("data:") {
             var value = String(line.dropFirst(5)); if value.hasPrefix(" ") { value.removeFirst() }
+            dataBytes += value.utf8.count + (dataLines.isEmpty ? 0 : 1)
+            guard dataBytes <= maximumEventBytes else {
+                throw ChatError.invalid("模型流式响应事件过大，已停止读取。")
+            }
             dataLines.append(value)
         }
     }
@@ -39,7 +55,8 @@ public struct CompletionStream {
     }
     private mutating func dispatch() throws {
         guard !dataLines.isEmpty else { return }
-        let event = dataLines.joined(separator: "\n"); dataLines.removeAll(keepingCapacity: true)
+        let event = dataLines.joined(separator: "\n")
+        dataLines.removeAll(keepingCapacity: true); dataBytes = 0
         if event == "[DONE]" { finished = true; return }
         guard let object = try? JSONSerialization.jsonObject(with: Data(event.utf8)) as? [String: Any] else {
             throw ChatError.invalid("模型流式响应格式错误，已收到的文字已保留。")

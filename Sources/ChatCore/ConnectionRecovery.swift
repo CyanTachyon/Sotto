@@ -22,7 +22,16 @@ public struct ConnectionRecovery {
     }
 
     public mutating func succeeded() {
-        isRunning = false; isConnected = true; nextAttemptAt = nil
+        isRunning = false; isConnected = true; attemptCount = 0; nextAttemptAt = nil
+    }
+
+    /// Reset the retry cycle after a separate message-query failure without
+    /// re-enabling a connection cycle that was explicitly suspended (for example
+    /// after the user deleted this account's credentials).
+    public mutating func resetForReconnect(now: Date = Date()) {
+        let suspended = isSuspended
+        self = ConnectionRecovery(now: now)
+        if suspended { suspend() }
     }
 
     public mutating func failed(now: Date = Date()) {

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 import ChatCore
+import Darwin
 
 // Local read-chain check: stdin only, counts only; no stored credential or network access.
 if CommandLine.arguments.contains("--reader-check") {
@@ -46,6 +47,35 @@ if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--control" {
     let command = CommandLine.arguments[2]
     guard ["status", "surface-status", "assist", "permissions", "connect", "focus", "hide", "quit", "follow-status", "accessibility"].contains(command) else { exit(2) }
     DistributedNotificationCenter.default().postNotificationName(.init("cn.local.ChatFloat.control"), object: nil, userInfo: ["command": command, "bundlePath": Bundle.main.bundleURL.path], deliverImmediately: true)
+    exit(0)
+}
+
+/// Keep one GUI instance. Helper/check invocations stay reusable so tests and
+/// `--control` can run while the menu-bar app is open. The lock file is advisory
+/// only; it prevents accidental duplicate menu-bar apps and duplicate bubble panels.
+private func acquireSingleInstanceLock() -> Int32? {
+    let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("cn.local.ChatFloat", isDirectory: true)
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                             attributes: [.posixPermissions: 0o700])
+    let path = directory.appendingPathComponent("app.lock").path
+    let descriptor = open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+    guard descriptor >= 0 else { return -1 }
+    if flock(descriptor, LOCK_EX | LOCK_NB) == 0 { return descriptor }
+    close(descriptor)
+    return nil
+}
+
+let helperInvocation = CommandLine.arguments.contains { argument in
+    ["--reader-check", "--store-db-keys", "--credential-status", "--control",
+     "--companion-window-check", "--experience-check", "--appearance-check",
+     "--ui-test", "--synthetic-model-check", "--appearance-preview"].contains(argument)
+} || Bundle.main.bundleIdentifier == "cn.local.ChatFloat.ExperiencePreview"
+if !helperInvocation, acquireSingleInstanceLock() == nil {
+    if let running = NSRunningApplication.runningApplications(withBundleIdentifier: "cn.local.ChatFloat")
+        .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+        running.activate(options: [])
+    }
     exit(0)
 }
 
@@ -105,7 +135,6 @@ final class MainWindow: NSWindow {
     var connectionWindow: AuxiliaryWindow?
     var settingsWindow: AuxiliaryWindow?
     var sourcesWindow: AuxiliaryWindow?
-    private var showingUnavailableNotice = false
     let experiencePreview = Bundle.main.bundleIdentifier == "cn.local.ChatFloat.ExperiencePreview"
     let appearancePreview = CommandLine.arguments.contains("--appearance-preview")
     var testMode: Bool { experiencePreview || appearancePreview || CommandLine.arguments.contains("--companion-window-check") || CommandLine.arguments.contains("--experience-check") || CommandLine.arguments.contains("--appearance-check") || CommandLine.arguments.contains("--ui-test") || CommandLine.arguments.contains("--synthetic-model-check") }
@@ -123,21 +152,25 @@ final class MainWindow: NSWindow {
             model.config = ModelConfig()
             model.identity = "外观预览 · 全部为虚构内容"
         }
-        // The companion joins the host application's Space. A regular app's
-        // input-method windows can remain on its former Space while our panel
-        // moves, leaving Chinese candidates invisible. Accessory apps keep the
-        // native candidate window with the active companion; the status item
-        // remains the entry point for settings and quitting.
-        NSApp.setActivationPolicy(.accessory)
+        // A production launch is a regular application with a main window,
+        // Dock icon and Command-Tab entry. Test/preview modes stay accessory so
+        // their synthetic fixtures do not appear as a second app. The companion
+        // is still a floating panel and the status item remains available.
+        // NOTE: the 0.5.2 input-method Space behavior was fixed with an
+        // accessory-only app; making the production app regular requires real
+        // Chinese IME/desktop retesting before calling that regression closed.
+        NSApp.setActivationPolicy(testMode || appearancePreview ? .accessory : .regular)
         NSApp.mainMenu = AppMenus.makeMainMenu()
+        if let windowsMenu = NSApp.mainMenu?.items.last?.submenu { NSApp.windowsMenu = windowsMenu }
         AppAppearanceController.shared.start()
-        if testMode { createFixturePanel() }
+        if !appearancePreview { createMainWindow() }
         model.$showConnection.removeDuplicates().sink { [weak self] visible in self?.showConnection(visible) }.store(in: &observations)
         model.$showSettings.removeDuplicates().sink { [weak self] visible in self?.showSettings(visible) }.store(in: &observations)
         model.$showSources.removeDuplicates().sink { [weak self] visible in self?.showSources(visible) }.store(in: &observations)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         status.button?.image = NSImage(systemSymbolName: "bubble.left.and.text.bubble.right", accessibilityDescription: "群聊伴读")
         let menu = NSMenu()
+        menu.addItem(withTitle: "显示主窗口", action: #selector(showMainWindow), keyEquivalent: "")
         menu.addItem(withTitle: "打开微信旁的伴读", action: #selector(showPanel), keyEquivalent: "")
         menu.addItem(withTitle: "连接设置…", action: #selector(connection), keyEquivalent: "")
         menu.addItem(withTitle: "外观与设置…", action: #selector(settings), keyEquivalent: ",")
@@ -150,7 +183,7 @@ final class MainWindow: NSWindow {
             }
         }
         if !appearancePreview && (!testMode || experiencePreview) {
-            companion = CompanionController(model: model, fixtureWindow: testMode ? panel : nil)
+            companion = CompanionController(model: model, fixtureWindow: panel)
         }
         if testMode {
             model.$companionEnabled.dropFirst().sink { [weak self] enabled in
@@ -162,8 +195,11 @@ final class MainWindow: NSWindow {
             }.store(in: &observations)
         }
         if !CommandLine.arguments.contains("--background") {
-            if testMode { showPanel() }
-            else if model.root.isEmpty { connection() }
+            if testMode {
+                showPanel()
+            } else if !CommandLine.arguments.contains("--connect") && !CommandLine.arguments.contains("--assist-setup") {
+                showMainWindow()
+            }
         }
         if appearancePreview { return }
         if let i = CommandLine.arguments.firstIndex(of: "--companion-window-check"), CommandLine.arguments.count > i + 1 { runCompanionWindowChecks(output: URL(fileURLWithPath: CommandLine.arguments[i+1])) }
@@ -177,26 +213,31 @@ final class MainWindow: NSWindow {
         } else if CommandLine.arguments.contains("--connect") { model.showConnection = true }
         if !testMode { model.writeConnectionStatus(); if !model.root.isEmpty && !CommandLine.arguments.contains("--assist-setup") { model.assistSetup(openPermissions: false) } }
     }
-    /// Developer fixtures alone own a regular chat window. Production has only
-    /// the WeChat companion and explicit settings/connection/source windows.
-    private func createFixturePanel() {
+    /// The production main window is a regular AppKit window hosting the same
+    /// conversation UI as the companion. Test modes reuse it as a synthetic
+    /// fixture, with a different title/size and no persisted frame.
+    private func createMainWindow() {
+        let fixture = testMode
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let available = screen.visibleFrame
-        let size = NSSize(width: min(400, available.width - 32), height: min(600, available.height - 80))
-        panel = MainWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        panel.title = "群聊伴读 · 合成检查"; panel.titleVisibility = .hidden; panel.titlebarAppearsTransparent = true
+        let desired = fixture ? NSSize(width: min(400, available.width - 32), height: min(600, available.height - 80))
+                             : NSSize(width: min(460, available.width - 40), height: min(720, available.height - 90))
+        panel = MainWindow(contentRect: NSRect(origin: .zero, size: desired), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        panel.title = fixture ? "群聊伴读 · 合成检查" : "群聊伴读"
+        panel.titleVisibility = fixture ? .hidden : .visible
+        panel.titlebarAppearsTransparent = fixture
         panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false; panel.collectionBehavior = []
-        panel.minSize = NSSize(width: min(360, size.width), height: min(480, size.height))
-        panel.contentView = NSHostingView(rootView: FloatView(model: model))
+        panel.minSize = NSSize(width: min(fixture ? 360 : 420, desired.width), height: min(fixture ? 480 : 560, desired.height))
+        panel.contentView = NSHostingView(rootView: FloatView(model: model,
+            onConversationPickerChange: { _ in },
+            showsCollapseControl: fixture))
+        if !fixture { _ = panel.setFrameAutosaveName("ChatFloatMainWindow") }
+        panel.center()
         panel.setFrame(panel.constrainFrameRect(panel.frame, to: screen), display: false)
         model.isStandaloneConversationVisible = { [weak self] in
             guard let panel = self?.panel else { return false }
             return panel.isVisible && !panel.isMiniaturized
         }
-        model.$pinned.removeDuplicates().sink { [weak self] enabled in
-            self?.panel?.collectionBehavior = enabled ? [.canJoinAllSpaces, .fullScreenAuxiliary] : []
-            self?.panel?.level = enabled ? .floating : .normal
-        }.store(in: &observations)
     }
     func handleControl(_ command: String) {
         switch command {
@@ -235,7 +276,7 @@ final class MainWindow: NSWindow {
         if visible {
             companion?.hide()
             if sourcesWindow == nil {
-                sourcesWindow = AuxiliaryWindow(title: "原消息 · 群聊伴读", size: NSSize(width: 500, height: 540), root: AnyView(SourcesView(model: model))) { [weak self] in self?.model.showSources = false; self?.model.evidenceSelection = nil; self?.model.evidenceMessages = nil }
+                sourcesWindow = AuxiliaryWindow(title: "原消息 · 群聊伴读", size: NSSize(width: 500, height: 540), root: AnyView(SourcesView(model: model))) { [weak self] in self?.model.showSources = false }
             }
             sourcesWindow?.present()
         } else { sourcesWindow?.hide(); resumeCompanionAfterAuxiliary() }
@@ -246,26 +287,16 @@ final class MainWindow: NSWindow {
     }
     @objc func showPanel() {
         if model.companionEnabled, companion?.present() == true { panel?.orderOut(nil); return }
-        guard testMode else {
-            if model.root.isEmpty { connection() } else { explainUnavailableCompanion() }
-            return
-        }
+        showMainWindow()
+    }
+    @objc func showMainWindow() {
+        if !testMode { NSApp.setActivationPolicy(.regular) }
         guard let panel else { return }
+        companion?.hide()
+        model.companionExpanded = false
         if panel.isMiniaturized { panel.deminiaturize(nil) }
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-    }
-    private func explainUnavailableCompanion() {
-        guard !showingUnavailableNotice else { return }
-        showingUnavailableNotice = true
-        defer { showingUnavailableNotice = false }
-        let alert = NSAlert()
-        alert.messageText = "请先打开微信聊天"
-        alert.informativeText = "回到微信并打开聊天窗口，再点击窗口旁的伴读气泡。若没有看到气泡，可在连接设置中检查连接与权限。"
-        alert.addButton(withTitle: "知道了")
-        alert.addButton(withTitle: "连接设置")
-        NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertSecondButtonReturn { connection() }
     }
     @objc func connection() { if model.showConnection { showConnection(true) } else { model.showConnection = true } }
     @objc func settings() { if model.showSettings { showSettings(true) } else { model.showSettings = true } }
@@ -278,7 +309,7 @@ final class MainWindow: NSWindow {
         if model.initializing { NSSound.beep(); return .terminateCancel }
         model.cancel(); return .terminateNow
     }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showPanel(); return true }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showMainWindow(); return true }
     func runSyntheticModelCheck() {
         guard let index = CommandLine.arguments.firstIndex(of: "--synthetic-model-check"), CommandLine.arguments.count > index + 1 else { exit(2) }
         let output = URL(fileURLWithPath: CommandLine.arguments[index + 1])
@@ -292,12 +323,10 @@ final class MainWindow: NSWindow {
         try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [self] in
             var checks: [(String, Bool)] = []
-            checks.append(("default main window normal", panel.level == .normal && !model.pinned && !panel.styleMask.contains(.nonactivatingPanel)))
+            checks.append(("default main window normal", panel.level == .normal && !panel.styleMask.contains(.nonactivatingPanel)))
             checks.append(("default 30 minutes and seven day preset", model.range == 1800 && AppModel.timePresets.contains(where: { $0.0 == 604800 })))
             checks.append(("small default content size", panel.contentLayoutRect.width <= 400 && panel.contentLayoutRect.height <= 600))
             checks.append(("main resizable and minimizable", panel.styleMask.contains([.resizable, .miniaturizable])))
-            model.pinned = true
-            checks.append(("manual pin on immediate floating", panel.level == .floating && panel.collectionBehavior.contains(.canJoinAllSpaces)))
             model.showConnection = true; model.showSettings = true; model.showSources = true
             for (name, controller) in [("connection", connectionWindow), ("settings", settingsWindow), ("sources", sourcesWindow)] {
                 let window = controller!.window
@@ -306,8 +335,6 @@ final class MainWindow: NSWindow {
                 let frame = (window.screen ?? NSScreen.main!).visibleFrame
                 checks.append((name + " fits screen", window.frame.width <= frame.width && window.frame.height <= frame.height))
             }
-            model.pinned = false
-            checks.append(("manual pin off immediate normal", panel.level == .normal && !panel.styleMask.contains(.nonactivatingPanel)))
             let keyWindow = NSApp.keyWindow
             let visibility = [panel.isVisible, connectionWindow!.window.isVisible, settingsWindow!.window.isVisible]
             handleControl("status")

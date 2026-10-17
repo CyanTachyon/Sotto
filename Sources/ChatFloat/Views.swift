@@ -27,6 +27,7 @@ private struct PrimaryActionStyle: ButtonStyle {
 struct FloatView: View {
     @ObservedObject var model: AppModel
     var onConversationPickerChange: (Bool) -> Void = { _ in }
+    var showsCollapseControl: Bool = true
     @UIState private var followOutput = true
     @UIState private var userScrolling = false
     @UIState private var selectingConversation = false
@@ -100,7 +101,7 @@ struct FloatView: View {
                 .disabled(!model.canStartNewConversation)
                 .help("清空当前伴读回答和上下文，开始新对话；微信记录不受影响。")
                 .accessibilityLabel("新对话")
-            if model.companionExpanded {
+            if model.companionExpanded && showsCollapseControl {
                 Button { model.companionExpanded = false } label: { Label("收起", systemImage: "chevron.down") }
                     .buttonStyle(.borderless).help("收起到气泡，保留当前回答").accessibilityLabel("收起到微信气泡")
             }
@@ -124,6 +125,8 @@ struct FloatView: View {
                 Spacer()
                 if !model.groups.isEmpty {
                     Toggle("自动跟随", isOn: $model.autoFollow).toggleStyle(.switch).controlSize(.mini)
+                        .disabled(!model.live)
+                        .help(model.live ? "跟随微信独立聊天窗口的标题" : "导入记录使用固定时间范围，不支持自动跟随")
                         .onChange(of: model.autoFollow) { _, _ in model.followChanged() }
                 }
             }
@@ -168,7 +171,7 @@ struct FloatView: View {
                 Picker("阅读范围", selection: $model.range) {
                     ForEach(AppModel.timePresets, id: \.0) { item in Text(item.1).tag(item.0) }
                 }.pickerStyle(.menu).disabled(model.frozenSnapshot != nil || model.busy)
-                if model.frozenSnapshot != nil { Button("更新记录", action: model.resetQuestion).controlSize(.small).disabled(model.busy) }
+                if model.frozenSnapshot != nil { Button("刷新记录", action: model.refreshRecords).controlSize(.small).disabled(model.busy).help("下一次提问重新读取所选范围，保留已有回答") }
             }
             if model.range == 0 {
                 DatePicker("从", selection: $model.start, displayedComponents: [.date, .hourAndMinute]).disabled(model.frozenSnapshot != nil || model.busy)
@@ -203,7 +206,7 @@ struct FloatView: View {
             Image(systemName: "text.bubble").font(.system(size: 32, weight: .light)).foregroundStyle(AppTheme.accent)
             Text(model.hasDatabaseConnection ? (model.groups.isEmpty ? "已连接，暂无会话" : "从一段聊天开始") : "一会儿没看，\n也能接上聊天。")
                 .font(.system(size: 23, weight: .medium)).lineSpacing(5)
-            Text(model.hasDatabaseConnection ? (model.groups.isEmpty ? "暂时没有读到可用会话。请确认微信已经同步记录，再到连接设置重新检测；也可以导入聊天文件。" : "选择一个群聊或联系人，看看发生了什么、有哪些结论和待办。") : "帮你整理群聊和私聊的重点。回答附有原消息，方便随时核对。")
+            Text(model.hasDatabaseConnection ? (model.groups.isEmpty ? "暂时没有读到可用会话。请确认微信已经同步记录，再到连接设置重新检测；也可以导入聊天文件。" : "选择一个群聊或联系人，看看发生了什么、有哪些结论和待办。") : "帮你整理群聊和私聊的重点。回答后可在「查看参考记录」中核对原消息。")
                 .font(.callout).foregroundStyle(AppTheme.textSecondary).lineSpacing(4)
             if model.connecting || model.detecting {
                 HStack { ProgressView().controlSize(.small); Text("正在连接微信…").font(.callout) }
@@ -245,26 +248,7 @@ struct FloatView: View {
         VStack(alignment: .leading, spacing: 10) {
             questionBubble(turn.question)
             Label("伴读 · \(turn.snapshot.sessionName)", systemImage: "sparkle").font(.caption).foregroundStyle(AppTheme.textSecondary)
-            SurfaceCard {
-                VStack(alignment: .leading, spacing: 18) {
-                    ForEach(Array(turn.answer.claims.enumerated()), id: \.offset) { _, claim in
-                        VStack(alignment: .leading, spacing: 8) {
-                            if let title = claim.title { Text(verbatim: title).font(.system(size: 15, weight: .semibold)) }
-                            MarkdownView(text: claim.text)
-                            if !claim.references.isEmpty {
-                                Button {
-                                    model.evidenceSelection = nil
-                                    model.evidenceMessages = claim.references.compactMap { turn.snapshot.referenceMap[$0.id] }
-                                    model.showSources = true
-                                } label: {
-                                    Label("查看 \(claim.references.count) 条原消息", systemImage: "quote.bubble").font(.caption)
-                                }.buttonStyle(.link).tint(AppTheme.link)
-                            }
-                        }
-                    }
-                }
-            }
-            if !turn.answer.insufficient.isEmpty { MarkdownView(text: turn.answer.insufficient).foregroundStyle(AppTheme.textSecondary) }
+            SurfaceCard { MarkdownView(text: turn.answer.text) }
         }
     }
     private var composer: some View {
@@ -309,7 +293,7 @@ struct SourcesView: View {
             Text("核对回答所参考的记录；这里只展示本次选择的范围。").font(.caption).foregroundStyle(AppTheme.textSecondary)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(model.evidenceMessages ?? model.evidenceSelection.map { [$0] } ?? model.displayedMessages) { message in
+                    ForEach(model.displayedMessages) { message in
                         SurfaceCard {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack { Text(message.sender ?? "发言者未知").bold(); Spacer(); Text(message.timestamp.map(Display.date) ?? "时间未知").font(.caption).foregroundStyle(AppTheme.textSecondary) }
@@ -322,7 +306,6 @@ struct SourcesView: View {
                     }
                 }
             }
-            if model.evidenceSelection != nil || model.evidenceMessages != nil { Button("查看本次全部原文") { model.evidenceSelection = nil; model.evidenceMessages = nil } }
         }.padding(20).frame(minWidth: 400, idealWidth: 500, maxWidth: .infinity, minHeight: 360, idealHeight: 540, maxHeight: .infinity)
             .background(AppTheme.canvas).foregroundStyle(AppTheme.textPrimary).tint(AppTheme.accent)
     }

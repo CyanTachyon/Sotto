@@ -4,7 +4,6 @@ public struct DiscoveredAccount: Identifiable, Sendable {
     public var id: String { root.path }
     public let root: URL
     public let messageShards: Int
-    public let updatedAt: Date?
     public var displayName: String {
         let account = root.deletingLastPathComponent().lastPathComponent
         let shortened = account.count > 16 ? String(account.prefix(8)) + "…" + String(account.suffix(4)) : account
@@ -41,7 +40,7 @@ public enum AccountDiscovery {
                         }
                     }
                     catch where isMissing(error) { shards = [] }
-                    found.append(DiscoveredAccount(root: root.resolvingSymlinksInPath(), messageShards: shards.count, updatedAt: attributes[.modificationDate] as? Date))
+                    found.append(DiscoveredAccount(root: root.resolvingSymlinksInPath(), messageShards: shards.count))
                 } catch where isMissing(error) { continue }
             }
             return AccountDiscoveryResult(state: found.isEmpty ? .notFound : .available, accounts: found.sorted { $0.root.path < $1.root.path })

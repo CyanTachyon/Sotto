@@ -23,10 +23,10 @@ class MediaTests(unittest.TestCase):
    chat='synthetic@chatroom';hash=hashlib.md5(chat.encode()).hexdigest();media='a'*32
    d=root.parent/'msg/attach'/hash/'2026-10/Img';d.mkdir(parents=True)
    image=d/(media+'.dat');data=b'\x89PNG\r\n\x1a\n' + b'fixture';image.write_bytes(data)
-   self.assertEqual(locate(root,chat,0,b'<img md5="'+media.encode()+b'"/>',b''),str(image))
-   self.assertIsNone(locate(root,'other@chatroom',0,b'<img md5="'+media.encode()+b'"/>',b''))
+   self.assertEqual(locate(root,chat,b'<img md5="'+media.encode()+b'"/>',b''),str(image))
+   self.assertIsNone(locate(root,'other@chatroom',b'<img md5="'+media.encode()+b'"/>',b''))
    result=perform({'root':str(root),'chat':chat,'paths':[str(image)]});self.assertEqual(result['images'][0]['status'],'decoded')
    denied=perform({'root':str(root),'chat':'other@chatroom','paths':[str(image)]});self.assertEqual(denied['images'][0]['status'],'outside_conversation');self.assertNotIn('data',denied['images'][0])
    outside=Path(tmp)/'outside.dat';outside.write_bytes(data);image.unlink();image.symlink_to(outside)
-   self.assertIsNone(locate(root,chat,0,b'<img md5="'+media.encode()+b'"/>',b''))
+   self.assertIsNone(locate(root,chat,b'<img md5="'+media.encode()+b'"/>',b''))
 if __name__=='__main__':unittest.main()

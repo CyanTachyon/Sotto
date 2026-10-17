@@ -4,6 +4,8 @@ import AppKit
     static func makeMainMenu() -> NSMenu {
         let main = NSMenu()
         let app = NSMenu(title: "群聊伴读")
+        app.addItem(withTitle: "关于群聊伴读", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(.separator())
         app.addItem(withTitle: "外观与设置…", action: #selector(AppDelegate.settings), keyEquivalent: ",")
         app.addItem(.separator())
         app.addItem(withTitle: "隐藏群聊伴读", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
@@ -30,6 +32,16 @@ import AppKit
         edit.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         main.addItem(NSMenuItem(title: edit.title, action: nil, keyEquivalent: ""))
         main.items.last?.submenu = edit
+
+        let window = NSMenu(title: "窗口")
+        window.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        window.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        window.addItem(.separator())
+        let mainWindowItem = window.addItem(withTitle: "群聊伴读", action: #selector(AppDelegate.showMainWindow), keyEquivalent: "0")
+        mainWindowItem.target = NSApp.delegate
+        window.addItem(withTitle: "前置全部窗口", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        main.addItem(NSMenuItem(title: window.title, action: nil, keyEquivalent: ""))
+        main.items.last?.submenu = window
         return main
     }
 }

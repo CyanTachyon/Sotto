@@ -12,12 +12,14 @@ public struct ModelConfig: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey { case endpoint, model, consentEndpoint, supportsVision, contextTokens, imageBudgetMB }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        endpoint = try c.decode(String.self, forKey: .endpoint)
-        model = try c.decode(String.self, forKey: .model)
-        consentEndpoint = try c.decode(String.self, forKey: .consentEndpoint)
-        supportsVision = try c.decode(Bool.self, forKey: .supportsVision)
-        contextTokens = max(1, try c.decode(Int.self, forKey: .contextTokens))
-        imageBudgetMB = min(100, max(1, try c.decode(Int.self, forKey: .imageBudgetMB)))
+        // Tolerate older saved configurations. Missing fields fall back to defaults
+        // instead of silently discarding the entire configuration in AppModel.
+        endpoint = try c.decodeIfPresent(String.self, forKey: .endpoint) ?? ""
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+        consentEndpoint = try c.decodeIfPresent(String.self, forKey: .consentEndpoint) ?? ""
+        supportsVision = try c.decodeIfPresent(Bool.self, forKey: .supportsVision) ?? false
+        contextTokens = max(1, try c.decodeIfPresent(Int.self, forKey: .contextTokens) ?? 128000)
+        imageBudgetMB = min(100, max(1, try c.decodeIfPresent(Int.self, forKey: .imageBudgetMB) ?? 20))
     }
     public func url() throws -> URL {
         guard let components = URLComponents(string: endpoint), let url = components.url,
@@ -31,25 +33,14 @@ public struct ModelConfig: Codable, Equatable, Sendable {
     }
 }
 
-public struct Citation: Codable, Equatable, Sendable {
-    public let id: String
-    /// Always reconstructed by the host from the snapshot, never trusted model prose.
-    public let quote: String
-    public var label: String { id.components(separatedBy: "-").last ?? id }
-}
-public struct Claim: Codable, Identifiable, Equatable, Sendable {
-    public var id: String { text + references.map(\.id).joined() }
-    public let title: String?
+/// Natural text/Markdown returned by the model. The old claims/citation protocol
+/// is gone: source review is the frozen snapshot view, not a model-reported list.
+public struct GroundedAnswer: Equatable, Sendable {
     public let text: String
-    public let references: [Citation]
-}
-/// The model returns natural text or Markdown; display it without interpreting an app-specific payload.
-public struct GroundedAnswer: Codable, Equatable, Sendable {
-    public let claims: [Claim]
-    public let insufficient: String
-    public static func validate(_ data: Data, snapshot _: Snapshot) throws -> GroundedAnswer {
+    public init(validating data: Data) throws {
         let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return GroundedAnswer(claims: [Claim(title: nil, text: text, references: [])], insufficient: "")
+        guard !text.isEmpty else { throw ChatError.invalid("模型没有返回回答内容。") }
+        self.text = text
     }
 }
 
@@ -74,8 +65,7 @@ public enum Prompt {
              "image_status": message.image.map { image in images.first(where: { $0.messageID == message.id }).map { "已附上：" + $0.quality } ?? ("未附上：" + (config.supportsVision ? image.status : "视觉已关闭")) } ?? "非图片消息"]
         }
         let historyJSON = history.suffix(6).map { item -> [String: Any] in
-            ["question": item.question, "answer": (item.answer.claims.map(\.text) + [item.answer.insufficient])
-                .filter { !$0.isEmpty }.joined(separator: "\n\n")]
+            ["question": item.question, "answer": item.answer.text]
         }
         let user: [String: Any] = ["question": question, "conversation": snapshot.sessionName,
             "snapshot_id": snapshot.id.uuidString, "snapshot_at": Display.iso(snapshot.createdAt),
@@ -119,7 +109,7 @@ public final class ModelClient: @unchecked Sendable {
         if let onUpdate { text = try await stream(config: config, key: key, body: body, onUpdate: onUpdate) }
         else { text = try await complete(config: config, key: key, body: body) }
         try Task.checkCancellation()
-        return try GroundedAnswer.validate(Data(text.utf8), snapshot: snapshot)
+        return try GroundedAnswer(validating: Data(text.utf8))
     }
     public func probe(config: ModelConfig, key: String) async throws {
         let body = try JSONSerialization.data(withJSONObject: ["model": config.model, "stream": false,

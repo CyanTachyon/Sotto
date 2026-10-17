@@ -46,7 +46,6 @@ import ChatCore
     model.range = 0; model.start = Date(timeIntervalSince1970: 1_700_000_000)
     model.end = model.start.addingTimeInterval(1_800); model.includeUnknown = true
     let start = model.start, end = model.end, config = model.config
-    model.evidenceSelection = model.current?.messages.first; model.evidenceMessages = model.current?.messages
     model.streamingText = "合成流式部分"; model.pendingQuestion = "A 的在途问题"
     model.imageSummary = "合成图片状态"; model.showSources = true; model.busy = true; model.error = "旧错误"
     checks["busy_conversation_can_start_fresh"] = model.canStartNewConversation
@@ -54,10 +53,10 @@ import ChatCore
     checks["new_conversation_clears_all_visible_ai_context"] =
         !model.busy && model.question.isEmpty && model.turns.isEmpty && model.streamingText.isEmpty &&
         model.pendingQuestion.isEmpty && model.frozenSnapshot == nil && model.current == nil &&
-        model.evidenceSelection == nil && model.evidenceMessages == nil && model.imageSummary.isEmpty &&
+        model.imageSummary.isEmpty &&
         model.error.isEmpty && !model.showSources && !model.canStartNewConversation
     checks["new_conversation_preserves_source_range_connection_and_model"] =
-        model.isDatabase && model.groupID == a.id && model.root == root && !model.autoFollow &&
+        model.live && model.groupID == a.id && model.root == root && !model.autoFollow &&
         model.range == 0 && model.start == start && model.end == end && model.includeUnknown &&
         model.config == config && model.hasDatabaseConnection && model.canAsk
     model.selectGroup(b.id, automatic: true)
@@ -132,5 +131,32 @@ import ChatCore
     failed.question = "另一次提交"; failed.ask(); failed.question = "预检期间的新草稿"
     try await waitUntil { !failed.busy }
     checks["late_failure_does_not_erase_newer_input"] = failed.question == "预检期间的新草稿" && !failed.error.isEmpty
+
+    // Selecting a saved import must adopt its own span, not the default recent window.
+    let oldImport = try ChatImporter.parse(
+        #"{"conversation":"旧导入","messages":[{"timestamp":"2020-01-01T00:00:00Z","sender":"甲","text":"旧消息"}]}"#,
+        filename: "old.json")
+    let importModel = AppModel(testMode: true)
+    importModel.range = 1800; importModel.end = Date()
+    importModel.select(oldImport)
+    checks["reselecting_import_resets_range_to_session_span"] =
+        importModel.range == 0 && importModel.start == oldImport.messages[0].timestamp && importModel.end == oldImport.messages[0].timestamp
+
+    // Refreshing records keeps displayed answers but drops the frozen snapshot.
+    let refresh = requestModel()
+    try refresh.loadSyntheticPreview()
+    let refreshTurnCount = refresh.turns.count
+    refresh.refreshRecords()
+    checks["refresh_keeps_answers_and_clears_snapshot"] =
+        refresh.turns.count == refreshTurnCount && refresh.frozenSnapshot == nil && !refresh.busy && refresh.error.isEmpty
+
+    // Imported records must not be silently switched to the database source.
+    let importedModel = AppModel(testMode: true)
+    importedModel.groups = [a]
+    importedModel.select(oldImport)
+    importedModel.autoFollow = true
+    importedModel.followChanged()
+    checks["imported_conversation_cannot_enable_follow"] =
+        !importedModel.live && !importedModel.autoFollow && importedModel.current?.id == oldImport.id
     return checks
 }

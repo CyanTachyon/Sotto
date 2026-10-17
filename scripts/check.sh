@@ -7,3 +7,4 @@ CHECK_BINARY="$(swift build --build-system native --package-path "$SOURCE_ROOT" 
 CHATFLOAT_READER_CHECK_BINARY="$CHECK_BINARY" PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 "$SOURCE_ROOT/Backend/test_reader.py"
 
 PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 "$SOURCE_ROOT/Backend/test_media.py"
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 "$SOURCE_ROOT/Backend/test_session_metadata.py"

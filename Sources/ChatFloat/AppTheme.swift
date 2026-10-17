@@ -7,7 +7,6 @@ enum AppTheme {
     static let canvas = color("canvas", light: 0xF5F5F5, dark: 0x202020)
     static let toolbar = color("toolbar", light: 0xEDEDED, dark: 0x282828)
     static let surface = color("surface", light: 0xFFFFFF, dark: 0x2C2C2C)
-    static let raisedSurface = color("raisedSurface", light: 0xFFFFFF, dark: 0x353535)
     static let input = color("input", light: 0xFFFFFF, dark: 0x1E1E1E)
     static let hoverSurface = color("hoverSurface", light: 0xE9E9E9, dark: 0x383838)
     static let textPrimary = color("textPrimary", light: 0x202020, dark: 0xE9E9E9)
@@ -28,9 +27,7 @@ enum AppTheme {
     static let quoteBar = color("quoteBar", light: 0xB7B7B7, dark: 0x626262)
     static let link = color("link", light: 0x076F3B, dark: 0x72DFA0)
     static let success = color("success", light: 0x187947, dark: 0x6BD897)
-    static let successBackground = color("successBackground", light: 0xE7F5EC, dark: 0x263E30)
     static let warning = color("warning", light: 0x976000, dark: 0xE3B35D)
-    static let warningBackground = color("warningBackground", light: 0xFFF2D6, dark: 0x403621)
     static let error = color("error", light: 0xB7352C, dark: 0xFF968D)
     static let errorBackground = color("errorBackground", light: 0xFDECE9, dark: 0x462B2B)
 

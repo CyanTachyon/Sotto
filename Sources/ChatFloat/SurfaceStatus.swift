@@ -6,7 +6,7 @@ import CoreGraphics
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         func info(_ window: NSWindow?) -> [String: Any] {
             guard let window else { return [:] }
-            let index = windows.firstIndex { ($0[kCGWindowNumber as String] as? Int) == window.windowNumber }
+            let index = windows.firstIndex { ($0[kCGWindowNumber as String] as? UInt32) == UInt32(window.windowNumber) }
             return ["windowID": window.windowNumber, "visible": window.isVisible, "onScreen": index != nil, "z": index ?? -1,
                     "bounds": index.flatMap { windows[$0][kCGWindowBounds as String] } ?? NSNull(), "level": window.level.rawValue]
         }

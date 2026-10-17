@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import ChatCore
 import CryptoKit
+import Darwin
 
 struct DBGroup: Codable, Identifiable, Equatable {
     let id: String
@@ -38,11 +39,22 @@ struct DatabaseBridge {
     static func account(_ root: String) -> String {
         SHA256.hash(data: Data(URL(fileURLWithPath: root).resolvingSymlinksInPath().path.utf8)).map { String(format: "%02x", $0) }.joined()
     }
-    static var backend: URL {
-        if let resources = Bundle.main.resourceURL, FileManager.default.fileExists(atPath: resources.appendingPathComponent("Backend/reader.py").path) {
+    /// Production launches must use the adapter shipped inside the application
+    /// bundle. Falling back to the current directory would let an unexpected
+    /// working directory supply the script that receives database credentials.
+    static var backend: URL? {
+        if let resources = Bundle.main.resourceURL,
+           FileManager.default.fileExists(atPath: resources.appendingPathComponent("Backend/reader.py").path) {
             return resources.appendingPathComponent("Backend")
         }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Backend")
+        // `swift run`/debug binaries have no app resources. Only those
+        // non-release builds may use the repository Backend; the signed release
+        // bundle must never send credentials to a script from the current directory.
+        guard Bundle.main.bundleIdentifier != "cn.local.ChatFloat" else { return nil }
+        let candidate = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Backend", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: candidate.appendingPathComponent("reader.py").path) else { return nil }
+        return candidate
     }
     static func request<T: Decodable>(_ command: String, root: String, chat: String? = nil, window: TimeWindow? = nil) async throws -> T {
         let account = account(root)
@@ -66,19 +78,51 @@ struct DatabaseBridge {
         do { return try JSONDecoder().decode(T.self, from: bytes) }
         catch { throw ChatError.invalid("数据库适配器返回格式不兼容。") }
     }
-    static func run(script: String, input: Data) async throws -> Data {
-        try await Task.detached {
-            let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            process.arguments = [backend.appendingPathComponent(script).path]
-            process.environment = ProcessInfo.processInfo.environment.merging(["PYTHONDONTWRITEBYTECODE": "1"]) { _, value in value }
-            let pipeIn = Pipe(), pipeOut = Pipe(); process.standardInput = pipeIn; process.standardOutput = pipeOut
-            process.standardError = FileHandle.nullDevice
+    static func run(script: String, input: Data, timeout: TimeInterval = 120) async throws -> Data {
+        guard let backend else {
+            throw ChatError.invalid("应用包缺少本地数据库适配器，无法读取聊天记录。请重新安装完整应用。")
+        }
+        let scriptURL = backend.appendingPathComponent(script)
+        guard FileManager.default.fileExists(atPath: scriptURL.path) else {
+            throw ChatError.invalid("应用包缺少数据库适配脚本 \(script)，请重新安装完整应用。")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [scriptURL.path]
+        process.environment = ProcessInfo.processInfo.environment.merging(["PYTHONDONTWRITEBYTECODE": "1"]) { _, value in value }
+        let pipeIn = Pipe(), pipeOut = Pipe()
+        process.standardInput = pipeIn; process.standardOutput = pipeOut; process.standardError = FileHandle.nullDevice
+        do {
             try process.run()
-            try pipeIn.fileHandleForWriting.write(contentsOf: input); try pipeIn.fileHandleForWriting.close()
-            let result = pipeOut.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
-            
-            return result
-        }.value
+            try pipeIn.fileHandleForWriting.write(contentsOf: input)
+            try pipeIn.fileHandleForWriting.close()
+        } catch {
+            if process.isRunning { process.terminate() }
+            throw ChatError.invalid("无法启动本地数据库适配器。请确认系统 Python 可用。")
+        }
+        let readTask = Task.detached { pipeOut.fileHandleForReading.readDataToEndOfFile() }
+        let deadline = Date().addingTimeInterval(max(1, timeout))
+        do {
+            while process.isRunning && Date() < deadline {
+                try await Task.sleep(for: .milliseconds(50))
+                try Task.checkCancellation()
+            }
+            if process.isRunning {
+                process.terminate()
+                try? await Task.sleep(for: .milliseconds(400))
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                _ = await readTask.result
+                throw ChatError.invalid("数据库操作超时（\(Int(timeout)) 秒），已停止。请缩小范围或重试。")
+            }
+        } catch {
+            if process.isRunning { process.terminate() }
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            _ = await readTask.result
+            throw error
+        }
+        let data = await readTask.value
+        process.waitUntilExit()
+        return data
     }
 }
 

@@ -1,5 +1,6 @@
 import AppKit
 import ChatCore
+import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -39,7 +40,6 @@ struct AnswerTurn: Identifiable {
     private var followEvidence = 0
     private var followRoleCounts: [String:Int] = [:]
     private var groundingState = "not_checked"
-    @Published var evidenceMessages: [ChatMessage]?
     @Published var identity = "尚未连接微信数据库"
     @Published var question = ""
     @Published var range = 1800
@@ -57,7 +57,6 @@ struct AnswerTurn: Identifiable {
     @Published var showSettings = false
     @Published var showConnection = false { didSet { if showConnection { resumeAutomaticConnection() } } }
     @Published var showSources = false
-    @Published var pinned = (UserDefaults.standard.object(forKey: "explicitPinChoiceV2") as? Bool) ?? false
     @Published var config = ModelConfig()
     @Published var initializing = false
     @Published var setupLog = ""
@@ -66,7 +65,6 @@ struct AnswerTurn: Identifiable {
     @Published var discoveredAccounts: [DiscoveredAccount] = []
     @Published var discoveryState = "not_checked"
     @Published var discoveryMessage = "可以自动找到此 Mac 上的微信数据，无需了解文件夹路径。"
-    var assistanceActive = false
     private var discoveredShardCount = 0
     private var databaseKeyCount = 0
     private var credentialState = "not_checked"
@@ -78,7 +76,6 @@ struct AnswerTurn: Identifiable {
     private var connectionRecoveryEnabled = true
     private var connectionObservers: [(NotificationCenter, NSObjectProtocol)] = []
     var databaseConnectionSource = DatabaseConnectionSource()
-    @Published var evidenceSelection: ChatMessage?
     var local: LocalStore?
     private var fence = RequestFence()
     private var operation: UUID?
@@ -98,7 +95,7 @@ struct AnswerTurn: Identifiable {
         isDevelopmentMode = testMode
         connectionRecoveryEnabled = !testMode
         if let data = UserDefaults.standard.data(forKey: "modelConfig"), let value = try? JSONDecoder().decode(ModelConfig.self, from: data) { config = value }
-        if testMode { root = ""; pinned = false; autoFollow = false; companionEnabled = false; if CommandLine.arguments.contains("--ui-test") { config = ModelConfig(); root = "" } }
+        if testMode { root = ""; autoFollow = false; companionEnabled = false; if CommandLine.arguments.contains("--ui-test") { config = ModelConfig(); root = "" } }
         if !testMode {
             do { local = try LocalStore(); sessions = try local?.load().filter { $0.origin == .imported } ?? [] }
             catch { self.error = "本地导入缓存读取失败，可在设置中清理后重试。" }
@@ -117,34 +114,53 @@ struct AnswerTurn: Identifiable {
     }
     deinit { for (center, token) in connectionObservers { center.removeObserver(token) }; timer?.invalidate() }
     var selectedGroup: DBGroup? { groups.first { $0.id == groupID } }
-    var isDatabase: Bool { live }
     var hasDatabaseConnection: Bool { !root.isEmpty && connectedDatabaseRoot == root && !messageQueryNeedsVerification }
     var frozenSnapshot: Snapshot? { frozen }
     var displayedMessages: [ChatMessage] { frozen?.messages ?? current?.messages ?? [] }
     var canAsk: Bool { !busy && (!live ? current != nil : selectedGroup != nil && (!autoFollow || followState == "confirmed")) }
     var canStartNewConversation: Bool {
         busy || !question.isEmpty || !turns.isEmpty || !streamingText.isEmpty || !pendingQuestion.isEmpty ||
-            frozen != nil || (live && current != nil) || evidenceSelection != nil || evidenceMessages != nil ||
+            frozen != nil || (live && current != nil) ||
             !frozenImages.isEmpty || imageConfig != nil || !imageSummary.isEmpty
     }
     var receiver: String { (try? config.url().host) ?? "未设置模型服务" }
 
     func invalidate(clear: Bool = true) {
         operation = nil; task?.cancel(); task = nil; fence.cancel(); busy = false; pendingInput = ""
-        phase = "就绪"
-        if clear { streamingText = ""; streamingSnapshot = nil; pendingQuestion = ""; frozenImages = []; imageConfig = nil; imageSummary = ""; frozen = nil; turns = []; evidenceSelection = nil; evidenceMessages = nil }
+        phase = "就绪"; error = ""
+        if clear { streamingText = ""; streamingSnapshot = nil; pendingQuestion = ""; frozenImages = []; imageConfig = nil; imageSummary = ""; frozen = nil; turns = [] }
     }
     func select(_ session: ChatSession) {
         guard isDevelopmentMode || session.origin != .demo else { return }
         stashConversation(); invalidate(); question = ""; live = false; autoFollow = false; groupID = ""; current = session
+        applySessionRange(session)
+        if !isDevelopmentMode { UserDefaults.standard.set(false, forKey: "followCurrentConversationV4") }
         fence.select(session.id); identity = session.origin == .demo ? "演示模式 · 全部为虚构消息" : "导入记录 · 独立会话"
+    }
+    /// A saved/imported session carries its own time span. Reset the picker to
+    /// that span every time the session is selected; otherwise a default
+    /// "last 30 minutes" window silently filters an old import into an empty snapshot.
+    private func applySessionRange(_ session: ChatSession) {
+        let times = session.messages.compactMap(\.timestamp)
+        range = 0
+        start = times.min() ?? session.createdAt
+        end = times.max() ?? session.createdAt
+        if start > end { swap(&start, &end) }
+        includeUnknown = false
     }
     private func preservePartial(_ note: String) {
         guard let snapshot = streamingSnapshot, !streamingText.isEmpty else { return }
-        if let answer = try? GroundedAnswer.validate(Data((streamingText + "\n\n（" + note + "）").utf8), snapshot: snapshot) {
+        if let answer = try? GroundedAnswer(validating: Data((streamingText + "\n\n（" + note + "）").utf8)) {
             turns.append(AnswerTurn(question: pendingQuestion, answer: answer, snapshot: snapshot))
         }
         streamingText = ""; streamingSnapshot = nil; pendingQuestion = ""
+    }
+    /// A completion that is still the current operation but no longer owns the
+    /// request fence must not leave the UI stuck in "busy" forever.
+    private func discardStaleCompletion(operation expected: UUID) {
+        guard operation == expected else { return }
+        busy = false; phase = "已取消"; operation = nil
+        streamingText = ""; streamingSnapshot = nil; pendingQuestion = ""; pendingInput = ""
     }
     private func stashConversation() {
         guard live, !groupID.isEmpty else { return }
@@ -153,6 +169,7 @@ struct AnswerTurn: Identifiable {
         drafts[draftKey(groupID)] = ConversationDraft(current: current, frozen: frozen, turns: turns, question: draftQuestion, range: range, start: start, end: end, images: frozenImages, imageConfig: imageConfig, imageSummary: imageSummary)
     }
     func selectGroup(_ id: String, automatic: Bool = false) {
+        error = ""
         if groupID != id { stashConversation(); invalidate(); current = nil; question = ""; groupID = id
             if let saved = drafts[draftKey(id)] {
                 current = saved.current; frozen = saved.frozen; turns = saved.turns; question = saved.question
@@ -163,9 +180,6 @@ struct AnswerTurn: Identifiable {
         live = true
         if !automatic { autoFollow = false; UserDefaults.standard.set(false, forKey: "followCurrentConversationV4"); UserDefaults.standard.set(id, forKey: "selectedDatabaseGroupV3") }
         identity = id.isEmpty ? "尚未确认当前会话" : (autoFollow ? "跟随微信当前会话" : "已固定此会话")
-    }
-    func setCompanionEnabled(_ enabled: Bool) {
-        companionEnabled = isDevelopmentMode ? enabled : true
     }
     func inspectFollow() async -> CurrentWeChat.Detection {
         let detected = await resolveFollow()
@@ -203,6 +217,17 @@ struct AnswerTurn: Identifiable {
         }
     }
     func followChanged() {
+        // Imported records use their own frozen time span and are not tied to a
+        // WeChat window. Enabling follow must never silently switch the source
+        // to a database conversation and discard the imported answers.
+        if !live || (current != nil && current?.origin != .database) {
+            autoFollow = false
+            followState = "not_checked"; followMessage = ""
+            if !isDevelopmentMode { UserDefaults.standard.set(false, forKey: "followCurrentConversationV4") }
+            identity = "导入记录不支持自动跟随 · 请选择数据库会话"
+            writeConnectionStatus()
+            return
+        }
         UserDefaults.standard.set(autoFollow, forKey: "followCurrentConversationV4")
         identityGeneration = UUID(); identityTask?.cancel(); identityTask = nil
         if autoFollow { live = true; followState = "checking"; identity = "正在核对微信当前会话…"; pollIdentity() }
@@ -226,8 +251,18 @@ struct AnswerTurn: Identifiable {
         fence.select(current?.id)
         stashConversation()
     }
-    func resetQuestion() { startNewConversation() }
-
+    /// Refresh the source snapshot without deleting the answers already shown.
+    /// The next question reads a new snapshot; old turns stay visible but are not
+    /// sent as history because history is filtered by snapshot id.
+    func refreshRecords() {
+        guard !busy else { return }
+        frozen = nil; frozenImages = []; imageConfig = nil; imageSummary = ""
+        showSources = false
+        streamingText = ""; streamingSnapshot = nil; pendingQuestion = ""; pendingInput = ""
+        identityGeneration = UUID(); identityTask?.cancel(); identityTask = nil
+        fence.cancel()
+        phase = "就绪"; error = ""
+    }
     func ask() {
         guard canAsk else { return }
         let submittedQuestion = question
@@ -288,12 +323,18 @@ struct AnswerTurn: Identifiable {
                     await self?.receiveStream(content, operation: op, conversation: expectedGroup)
                 }
                 try Task.checkCancellation()
-                guard self.operation == op, self.fence.accepts(token: token, sessionID: snapshot.sessionID) else { return }
+                guard self.operation == op else { return }
+                guard self.fence.accepts(token: token, sessionID: snapshot.sessionID) else {
+                    self.discardStaleCompletion(operation: op); return
+                }
                 if expectedLive && self.autoFollow && WeChatWindow.isRelevantForeground {
                     guard await self.verifiedCurrentID() == expectedGroup else { throw ChatError.invalid("回答完成时当前会话已改变或无法确认，已丢弃回答。") }
                 }
                 try Task.checkCancellation()
-                guard self.operation == op, self.fence.accepts(token: token, sessionID: snapshot.sessionID) else { return }
+                guard self.operation == op else { return }
+                guard self.fence.accepts(token: token, sessionID: snapshot.sessionID) else {
+                    self.discardStaleCompletion(operation: op); return
+                }
                 self.streamingText = ""; self.streamingSnapshot = nil; self.pendingQuestion = ""; self.pendingInput = ""
                 self.turns.append(AnswerTurn(question: text, answer: answer, snapshot: snapshot))
                 self.phase = "回答完成 · 可继续追问"; self.busy = false; self.operation = nil
@@ -339,7 +380,7 @@ struct AnswerTurn: Identifiable {
                 try Task.checkCancellation()
                 guard root == selectedRoot else { throw CancellationError() }
                 messageQueryNeedsVerification = true; connectedDatabaseRoot = nil; credentialState = "message_query_failed"
-                if !connecting { connectionRecovery = ConnectionRecovery() }
+                if !connecting { connectionRecovery.resetForReconnect() }
                 setupLog = "上次聊天分库查询未通过；联系人库复检成功也不代表聊天分库已经恢复。原问题和已有回答已保留。"
                 writeConnectionStatus()
                 if attempt == 0 { try await Task.sleep(for: .milliseconds(250)) }
@@ -360,11 +401,10 @@ struct AnswerTurn: Identifiable {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.json, .plainText]; panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             do {
-                let values = try url.resourceValues(forKeys: [.fileSizeKey]); guard (values.fileSize ?? Int.max) <= 100_000_000 else { throw ChatError.invalid("导入文件超过 100 MB。") }
+                let values = try url.resourceValues(forKeys: [.fileSizeKey]); guard (values.fileSize ?? Int.max) <= 5_000_000 else { throw ChatError.invalid("导入文件超过 5 MB。") }
                 let session = try ChatImporter.parse(String(contentsOf: url, encoding: .utf8), filename: url.lastPathComponent)
                 sessions.insert(session, at: 0); sessions = Array(sessions.prefix(20)); try local?.save(sessions)
-                select(session); range = 0
-                start = session.messages.compactMap(\.timestamp).min() ?? Date(); end = session.messages.compactMap(\.timestamp).max() ?? Date()
+                select(session)
                 error = ""
             } catch { self.error = error.localizedDescription }
         }
@@ -374,20 +414,12 @@ struct AnswerTurn: Identifiable {
         let snapshot = try SyntheticScenario.snapshot()
         current = try ChatSession(id: snapshot.sessionID, name: snapshot.sessionName, origin: .demo, sourceDescription: "完全虚构的界面验收样例", messages: snapshot.messages)
         frozen = snapshot; fence.select(snapshot.sessionID)
-        turns = [AnswerTurn(question: "过去半小时发生了什么？", answer: try GroundedAnswer.validate(SyntheticScenario.narrative(snapshot), snapshot: snapshot), snapshot: snapshot)]
+        turns = [AnswerTurn(question: "过去半小时发生了什么？", answer: try GroundedAnswer(validating: SyntheticScenario.narrative(snapshot)), snapshot: snapshot)]
         identity = "虚构界面样例 · 不是模型实测回答"
-    }
-    func demo() {
-        guard isDevelopmentMode else { return }
-        let session = ChatImporter.demo(); sessions.removeAll { $0.origin == .demo }; sessions.insert(session, at: 0)
-        select(session); range = 1800
-    }
-    func setPinnedByUser(_ value: Bool) {
-        pinned = value; UserDefaults.standard.set(value, forKey: "explicitPinChoiceV2")
     }
     func assistSetup(openPermissions: Bool = true, presentConnection: Bool = false) {
         guard !detecting, !initializing, !connecting else { return }
-        assistanceActive = true; if presentConnection { showConnection = true }; detecting = true
+        if presentConnection { showConnection = true }; detecting = true
         discoveryState = "checking"; discoveryMessage = "正在由群聊伴读自动检测本机微信数据…"
         writeConnectionStatus()
         Task {
@@ -428,11 +460,13 @@ struct AnswerTurn: Identifiable {
     func selectDatabaseRoot(_ selectedRoot: String) {
         guard root != selectedRoot else { return }
         stashConversation(); invalidate(); groups = []; groupID = ""; current = nil; live = false
+        drafts.removeAll()
         identityGeneration = UUID(); identityTask?.cancel(); identityTask = nil
         connectionGeneration = UUID(); connectionTask?.cancel(); connectionTask = nil; connecting = false
         connectedDatabaseRoot = nil; messageQueryNeedsVerification = false; connectionRecovery = ConnectionRecovery()
         databaseKeyCount = 0; credentialState = "not_checked"
         root = selectedRoot; UserDefaults.standard.set(root, forKey: "databaseRoot")
+        UserDefaults.standard.removeObject(forKey: "selectedDatabaseGroupV3")
     }
 
     func resumeAutomaticConnection() {
@@ -589,6 +623,7 @@ struct AnswerTurn: Identifiable {
         guard !root.isEmpty, !connecting, !initializing else { return }
         try CredentialStore.deleteDatabase(DatabaseBridge.account(root))
         invalidate(); groups = []; groupID = ""; current = nil; live = false
+        drafts.removeAll()
         connectedDatabaseRoot = nil; messageQueryNeedsVerification = false; connectionRecovery.suspend(); databaseKeyCount = 0; credentialState = "missing"
         identity = "此账号的数据库密钥已删除"; setupLog = "此账号密钥已删除。"
         writeConnectionStatus()
@@ -600,7 +635,12 @@ struct AnswerTurn: Identifiable {
         }
         initializing = true; setupLog = "启动本地初始化…"; error = ""
         let selectedRoot = root
-        let resources = DatabaseBridge.backend
+        guard let resources = DatabaseBridge.backend,
+              FileManager.default.fileExists(atPath: resources.appendingPathComponent("bootstrap.py").path) else {
+            initializing = false
+            error = "应用包缺少初始化脚本，请重新安装完整应用。"
+            return
+        }
         let executable = Bundle.main.executableURL?.path ?? ""
         let directory = local?.directory.path ?? NSTemporaryDirectory()
         let owner = self
@@ -609,6 +649,19 @@ struct AnswerTurn: Identifiable {
             process.environment = ProcessInfo.processInfo.environment.merging(["PYTHONDONTWRITEBYTECODE": "1"]) { _, value in value }
             process.arguments = [resources.appendingPathComponent("bootstrap.py").path, "--acknowledge-copy", selectedRoot, executable, directory]
             let output = Pipe(); process.standardOutput = output; process.standardError = FileHandle.nullDevice
+            // The capture helper enforces its own 180s deadline, but bootstrap can
+            // also hang in ditto/codesign/LLDB. Keep an outer bound so Quit is not
+            // permanently blocked by a stuck child process.
+            let timeout = DispatchSource.makeTimerSource(queue: DispatchQueue.global())
+            timeout.schedule(deadline: .now() + 240)
+            timeout.setEventHandler {
+                if process.isRunning { process.terminate() }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                    if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                }
+            }
+            timeout.resume()
+            defer { timeout.cancel() }
             do {
                 try process.run()
                 var pending = Data()

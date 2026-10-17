@@ -12,6 +12,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import time
 
 
@@ -45,6 +46,10 @@ def main():
             rows.append((str(p.relative_to(root)), page))
     if not rows:
         raise RuntimeError('no encrypted database pages to validate')
+    # Only the databases read by reader.py are required for a usable manifest.
+    # Other account stores (e.g. emoji) may legitimately use a different key.
+    required_messages = {rel for rel, _ in rows if re.fullmatch(r'message/message_[0-9]+\.db', rel)}
+    required = {'contact/contact.db'} | required_messages
     salts = {page[:16] for _,page in rows}
     macsalts = {bytes(x^0x3a for x in s): s for s in salts}
     found = {}
@@ -125,7 +130,7 @@ def main():
                 emit('waiting',verified_databases=len(found),**counts)
                 last_update=time.monotonic()
         emit('capture_finished',verified_databases=len(found),total_databases=len(rows),**counts)
-        return 0 if found else 3
+        return 0 if required_messages and required.issubset(found) else 3
     finally:
         if process is not None and process.IsValid() and process.GetState() not in (lldb.eStateExited,lldb.eStateDetached,lldb.eStateInvalid):
             process.Kill()

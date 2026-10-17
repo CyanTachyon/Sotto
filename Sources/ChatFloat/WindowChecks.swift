@@ -59,19 +59,6 @@ func focusedWindowTargetChecks() -> [String: Bool] {
     return checks
 }
 
-#if FOCUSED_WINDOW_TARGET_CHECKS
-@main private struct FocusedWindowTargetChecksMain {
-    static func main() {
-        let checks = focusedWindowTargetChecks()
-        let passed = checks.values.allSatisfy { $0 }
-        let output: [String: Any] = ["checks": checks, "passed": passed, "syntheticOnly": true, "weChatInputEvents": 0]
-        if let data = try? JSONSerialization.data(withJSONObject: output, options: [.prettyPrinted, .sortedKeys]) {
-            FileHandle.standardOutput.write(data)
-        }
-        exit(passed ? 0 : 2)
-    }
-}
-#else
 /// Exercise the same resolver with two real windows belonging only to this test
 /// process. AppKit's key window supplies fixture focus; no WeChat AX query is made.
 @MainActor private func ownWindowTargetChecks(output: URL) async -> [String: Bool] {
@@ -193,7 +180,7 @@ func focusedWindowTargetChecks() -> [String: Bool] {
     model.question = "合成窗口切换草稿"; model.streamingText = "合成部分回答"; model.busy = true
     do {
         let snapshot = try SyntheticScenario.snapshot()
-        let answer = try GroundedAnswer.validate(SyntheticScenario.narrative(snapshot), snapshot: snapshot)
+        let answer = try GroundedAnswer(validating: SyntheticScenario.narrative(snapshot))
         model.turns = [AnswerTurn(question: "合成历史问题", answer: answer, snapshot: snapshot)]
     } catch { return ["own_expansion_fixture_setup": false] }
     let preservedTurns = model.turns.map(\.id)
@@ -308,14 +295,10 @@ extension AppDelegate {
                       let theirs = relevant.firstIndex(where:{ ($0[kCGWindowOwnerPID as String] as? Int32)==other.processIdentifier }) else { return nil }
                 return own < theirs
             }
-            model.pinned = true; showPanel(); await pause(1)
-            other.activate(); await pause(2)
-            let pinnedAbove = aboveOther() == true && NSWorkspace.shared.frontmostApplication?.processIdentifier == other.processIdentifier
-            lines.append("\(pinnedAbove ? "PASS" : "FAIL") pinned stays above while other app foreground")
-            model.pinned = false; showPanel(); await pause(1)
+            showPanel(); await pause(1)
             other.activate(); await pause(2)
             let normalBehind = aboveOther() == false && NSWorkspace.shared.frontmostApplication?.processIdentifier == other.processIdentifier
-            lines.append("\(normalBehind ? "PASS" : "FAIL") unpinned is behind other foreground application")
+            lines.append("\(normalBehind ? "PASS" : "FAIL") normal fixture is behind other foreground application")
             await pause(4)
             let remainedBehind = aboveOther() == false && NSWorkspace.shared.frontmostApplication?.processIdentifier == other.processIdentifier
             lines.append("\(remainedBehind ? "PASS" : "FAIL") after timers window stays behind, foreground preserved")
@@ -396,4 +379,3 @@ extension AppDelegate {
     }
 }
 
-#endif

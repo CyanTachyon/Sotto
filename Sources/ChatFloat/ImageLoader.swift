@@ -6,7 +6,7 @@ import ChatCore
 struct ImagePreparation: Sendable { let images: [ModelImage]; let summary: String }
 enum ImageLoader {
     struct Row: Decodable { let path: String; let status: String; let data: String? }
-    struct Result: Decodable { let images: [Row] }
+    struct Result: Decodable { let images: [Row]; let error: String? }
     static func prepare(snapshot: Snapshot, root: String, config: ModelConfig, chat: String = "") async -> ImagePreparation {
         let messages = snapshot.messages.filter { $0.image != nil }
         guard !messages.isEmpty else { return ImagePreparation(images: [], summary: "") }
@@ -18,8 +18,12 @@ enum ImageLoader {
             if !paths.isEmpty && !root.isEmpty && !chat.isEmpty {
                 do {
                     let input = try JSONSerialization.data(withJSONObject: ["root": root, "chat": chat, "paths": paths, "inputBudget": min(400, config.imageBudgetMB * 8) * 1024 * 1024])
-                    let result = try await DatabaseBridge.run(script: "media.py", input: input)
-                    decoded = Dictionary(uniqueKeysWithValues: try JSONDecoder().decode(Result.self, from: result).images.map { ($0.path, $0) })
+                    let decodedResult = try JSONDecoder().decode(Result.self, from: try await DatabaseBridge.run(script: "media.py", input: input))
+                    if let error = decodedResult.error {
+                        reasons["图片读取失败", default: 0] += messages.count
+                        return ImagePreparation(images: [], summary: "图片读取失败（\(error)）· \(messages.count) 张未附上，文字照常发送")
+                    }
+                    decoded = Dictionary(uniqueKeysWithValues: decodedResult.images.map { ($0.path, $0) })
                 } catch { reasons["图片读取失败", default: 0] += messages.count; return ImagePreparation(images: [], summary: "图片读取失败 · \(messages.count) 张未附上，文字照常发送") }
             }
             for message in messages {
