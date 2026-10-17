@@ -27,6 +27,8 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 APP="$STAGING_ROOT/群聊伴读.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Backend" "$APP/Contents/Resources/Frameworks" "$APP/Contents/Resources/ThirdParty"
+if [ ! -f "$SOURCE_ROOT/Resources/AppIcon.icns" ]; then python3 "$SOURCE_ROOT/scripts/make-icon.py"; fi
+cp "$SOURCE_ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$BINARY_DIR/ChatFloat" "$APP/Contents/MacOS/ChatFloat"
 for name in bootstrap.py capture_keys.py reader.py sqlcipher_probe.py media.py; do cp "$SOURCE_ROOT/Backend/$name" "$APP/Contents/Resources/Backend/$name"; done
 cp "$SOURCE_ROOT/ThirdParty/"*.txt "$APP/Contents/Resources/ThirdParty/"
@@ -50,12 +52,17 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>cn.local.ChatFloat</string>
 <key>CFBundleExecutable</key><string>ChatFloat</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.5.2</string>
-<key>CFBundleVersion</key><string>21</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleShortVersionString</key><string>0.6.0</string>
+<key>CFBundleVersion</key><string>22</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
+<key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
-<key>LSUIElement</key><true/>
+<key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
+<key>LSMultipleInstancesProhibited</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSHumanReadableCopyright</key><string>群聊伴读 · 本机微信阅读助手</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
