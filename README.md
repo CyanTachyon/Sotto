@@ -2,11 +2,11 @@
 
 macOS 原生微信阅读助手，支持群聊和私聊。读取本人微信已同步的本地记录，把选定会话和时间范围交给兼容 Chat Completions 的模型问答。
 
-当前版本：**0.7.0 build 23**。这是一个常规 macOS App：安装后出现在「应用程序」、Launchpad、Dock 和 Command+Tab 中；主窗口用于选择会话和阅读回答，微信窗口旁的伴读气泡仍然保留。验证记录见 `docs/verification-0.7.0/readiness.json`。
+当前版本：**0.0.1 build 1**。这是一个常规 macOS App：安装后出现在「应用程序」、Launchpad、Dock 和 Command+Tab 中；主窗口用于选择会话和阅读回答，微信窗口旁的伴读气泡仍然保留。验证记录见 `docs/verification-0.0.1/readiness.json`。
 
 ## 安装
 
-推荐使用 `artifacts/Sotto-0.7.0-arm64.dmg`：
+推荐使用 `artifacts/Sotto-0.0.1-arm64.dmg`：
 
 1. 双击 DMG，把「Sotto.app」拖入「Applications」。
 2. 从「应用程序」或 Launchpad 打开。
@@ -35,7 +35,7 @@ Sotto 的 bundle identifier 是 `moe.tachyon.sotto`，与旧的 `cn.local.ChatFl
 - **新对话**清空当前会话的 AI 回答、草稿、上下文和参考快照；生成中使用会先取消当前请求。会话、时间范围和连接配置保留，不删除微信记录；切走再返回不会恢复被清空的内容。
 - 当前进程内按会话保留回答与草稿，收起不清空。退出或重启前请复制需要长期保存的内容。
 
-> **输入法桌面行为说明**：0.5.2 曾通过“仅菜单栏 accessory 模式”修复中文输入法候选窗停留在旧桌面的问题。0.7.0 改为常规 App 并保留主窗口；这条输入法行为尚未在真实微信/真实输入法上重新验证，需要在正式使用前手动复核。
+> **输入法桌面行为说明**：0.5.2 曾通过“仅菜单栏 accessory 模式”修复中文输入法候选窗停留在旧桌面的问题。0.0.1 改为常规 App 并保留主窗口；这条输入法行为尚未在真实微信/真实输入法上重新验证，需要在正式使用前手动复核。
 
 ## 连接与模型
 
@@ -72,7 +72,7 @@ Sotto 的 bundle identifier 是 `moe.tachyon.sotto`，与旧的 `cn.local.ChatFl
 - `Backend`：SQLCipher 只读查询与图片解码。
 - `Checks`、应用内显式检查参数：合成测试，正式界面没有模拟对话入口。
 - `Resources/AppIcon.icns`：应用图标；`scripts/make-icon.py` 可重新生成。
-- `artifacts`：当前 0.7.0 App、DMG、源码包及 `SHA256.json`。
+- `artifacts`：当前 0.0.1 App、DMG、源码包及 `SHA256.json`。
 - `work`、`.build`：本机中间产物，不分发。
 
 构建使用 Command Line Tools、SwiftPM、Python，以及 Homebrew 的 sqlcipher、zstd、openssl@4；脚本把所需动态库放入应用，不要求安装完整 Xcode。
@@ -91,4 +91,4 @@ python3 scripts/local-signing.py check
 
 `build-app.sh` 在临时目录完成签名和验证后才替换输出，失败或可处理的中断会保留旧包。`build-dmg.sh` 生成带 Applications 快捷方式的标准拖拽安装 DMG，并用同一本机身份签名 DMG。
 
-未验证/限制：没有 Developer ID 与公证；未在真实微信、真实中文输入法、真实模型服务上重新执行本轮 0.7.0 验收；0.5.2 的输入法 Space 修复需在常规 App 形态下重新复核。详见 `docs/verification-0.7.0/readiness.json`。
+未验证/限制：没有 Developer ID 与公证；未在真实微信、真实中文输入法、真实模型服务上重新执行本轮 0.0.1 验收；0.5.2 的输入法 Space 修复需在常规 App 形态下重新复核。详见 `docs/verification-0.0.1/readiness.json`。
