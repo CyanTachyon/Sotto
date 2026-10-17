@@ -1,0 +1,16 @@
+.build/
+.swiftpm/
+__pycache__/
+*.pyc
+.DS_Store
+*.db
+*.db-wal
+*.db-shm
+keys*.json
+artifacts/*
+!artifacts/SHA256.json
+work/
+archive/
+*.app/
+.omo/
+docs/本机配置状态.json
