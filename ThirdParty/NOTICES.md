@@ -1,6 +1,6 @@
 # Third-party components
 
-These notices describe the components included in the Sotto 0.0.1 release.
+These notices describe the components included in the Sotto 0.0.2 release.
 Their original notices and licenses remain in effect for the respective code.
 Sotto's project license does not replace these notices.
 
@@ -65,19 +65,21 @@ their own changes and are not an unmodified copy of the whole toolkit.
 
 ## Binary provenance and build materials
 
-The release's three third-party libraries were copied from installed Homebrew
-packages: SQLCipher 4.19.0, Zstandard 1.5.7 and OpenSSL 4.0.2, all arm64.
-Sotto's app build changes their Mach-O install names/dependency paths to
-`@loader_path` and signs the copied libraries. It does not modify their source
-code. No Homebrew command-line tools or complete Homebrew installations are
-included in the app.
+The release's three third-party libraries are rebuilt from the exact upstream
+source archives above, with arm64 / macOS 26.0 as the deployment target.
+The release uses the macOS 26.5 SDK. The build enables
+`-Werror=unguarded-availability-new` and checks each Mach-O minimum version;
+these checks do not substitute for running on a macOS 26 machine.
 
-Release source materials accompany the binaries with the complete
-upstream source archives above, the installed Homebrew formula snapshots and
-sanitized installation receipts, and Sotto's build/signing scripts. The formula
-snapshots record the source hashes and configuration used by the installed
-packages; a future `brew install` may select different versions. A rebuild
-uses the builder's own signing identity, not the original publisher's private
-signing material. See the dependency source archive's `BUILDING.md` for the
-recorded build inputs and the distinction between reconstructing the program
-and reproducing an original signed binary byte for byte.
+[`scripts/build-dependencies.sh`](../scripts/build-dependencies.sh) records the
+configuration and validates the source SHA-256 values. It builds OpenSSL first,
+SQLCipher against that OpenSSL, and Zstandard with legacy/dictionary support.
+No Homebrew bottle is copied into the release. The upstream library sources
+are not patched. Sotto's app build rewrites Mach-O install names and the
+SQLCipher/OpenSSL dependency to `@loader_path`, then signs the copied libraries.
+
+Release source materials accompany the binaries with the complete upstream
+source archives, the dependency build script and a sanitized build manifest.
+A rebuild uses the builder's own signing identity, not the original publisher's
+private signing material. These inputs support reconstructing the program;
+they do not promise byte-for-byte reproduction of signed binaries.

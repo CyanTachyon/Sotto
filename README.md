@@ -6,9 +6,9 @@ Sotto 作为菜单栏工具运行，在微信聊天窗口旁显示气泡，点�
 
 ## 下载与安装
 
-当前版本为 **0.0.1（build 4）**，面向 **Apple Silicon（arm64）、macOS 27.0 及以上**。
+当前版本为 **0.0.2（build 5）**，面向 **Apple Silicon（arm64）、macOS 26.0 及以上**。
 
-1. 从 [v0.0.1 发布页](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.1) 下载 `Sotto-0.0.1-arm64.dmg`。
+1. 从 [v0.0.2 发布页](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.2) 下载 `Sotto-0.0.2-arm64.dmg`。
 2. 打开 DMG，将「Sotto.app」拖入「Applications」，再从「应用程序」启动。
 3. 通过菜单栏 Sotto 图标打开连接与设置；微信聊天窗口可用时，也可点击窗口旁的气泡。
 
@@ -28,7 +28,7 @@ Sotto 作为菜单栏工具运行，在微信聊天窗口旁显示气泡，点�
 
 没有可用密钥时，连接页提供需要你明确确认的“一次性初始化”：先自行正常退出微信，Sotto 再创建、重新签名并启动临时微信副本，通过调试读取并验证所选账号的数据库密钥。原版应用与 SIP 保持不变，但副本会访问本人账号资料，可能要求手机确认或重新登录，也可能由微信更新缓存或登录状态。结束后需自行打开原版微信并验证连接。
 
-**这条首次取钥路线尚未在本机 macOS 27 上完成真实账号验证，不能保证成功。** 当前流程限定 Apple Silicon 与微信 **4.1.15**，需要系统允许调试；失败时不会自动降低安全设置。正常伴读读取本地数据库，不进行截图或 OCR；上述经确认的首次取钥流程另行使用调试能力。
+**这条首次取钥路线尚未完成真实账号验证，不能保证成功。** 当前流程限定 Apple Silicon 与微信 **4.1.15**，需要系统允许调试；失败时不会自动降低安全设置。正常伴读读取本地数据库，不进行截图或 OCR；上述经确认的首次取钥流程另行使用调试能力。
 
 ### 配置模型服务
 
@@ -88,9 +88,9 @@ JSON 示例（虚构内容）：
 
 主要目录：`Sources/SottoCore` 为快照、模型请求、凭据与导入逻辑；`Sources/Sotto` 为 AppKit/SwiftUI 界面、窗口跟随与连接；`Backend` 为 SQLCipher 只读查询与图片解码；`Checks` 和显式检查入口使用合成数据。正式界面不提供模拟对话入口。
 
-构建需要支持 macOS 27 SDK 的 Command Line Tools、SwiftPM、Python 3，以及 Homebrew 的 `sqlcipher`、`zstd`、`openssl@4`。脚本会将动态库放入应用包；不要求安装完整 Xcode。
+构建需要 macOS 26 或更新的 SDK、Command Line Tools、SwiftPM、Python 3，以及系统的 make、Perl 和 Tcl。依赖脚本从固定版本的官方源码构建 SQLCipher、Zstandard、OpenSSL，统一以 arm64、macOS 26.0 为目标；不会直接复制随本机系统升级的 Homebrew 二进制。不要求安装完整 Xcode。首次构建需要联网下载依赖，也可通过 `SOTTO_DEPENDENCY_SOURCES` 指定已有的三份源码归档目录。
 
-0.0.1 源码构建使用的依赖版本为 SQLCipher 4.19.0、Zstandard（zstd）1.5.7、OpenSSL 4.0.2；对应依赖源码随同一 [Release](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.1) 的 `Sotto-0.0.1-dependency-sources.zip` 提供，详见 [ThirdParty/NOTICES.md](ThirdParty/NOTICES.md)。
+0.0.2 源码构建使用的依赖版本为 SQLCipher 4.19.0、Zstandard（zstd）1.5.7、OpenSSL 4.0.2；对应依赖源码随同一 [Release](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.2) 的 `Sotto-0.0.2-dependency-sources.zip` 提供，详见 [ThirdParty/NOTICES.md](ThirdParty/NOTICES.md)。
 
 ```sh
 ./scripts/check.sh
@@ -98,8 +98,11 @@ JSON 示例（虚构内容）：
 python3 scripts/local-signing.py setup
 python3 scripts/local-signing.py check
 ./scripts/build-app.sh
+python3 scripts/check-compatibility.py artifacts/Sotto.app
 ./scripts/build-dmg.sh
 ```
+
+可用 `SDKROOT` 指定 SDK；本次发布使用 macOS 26.5 SDK、最低目标 26.0。构建脚本会核验主程序及全部随包动态库的架构、最低系统版本与依赖路径，拒绝混入要求更高系统版本的库。依赖默认缓存在 `.build/macos26-dependencies`。
 
 输出位于本机 `artifacts/`，该目录不作为源码分发内容。`build-app.sh` 在临时目录完成签名与验证后才替换应用；`build-dmg.sh` 创建带 Applications 快捷方式的拖拽安装镜像，已有同名 DMG 时会停止。
 
@@ -107,7 +110,7 @@ python3 scripts/local-signing.py check
 
 ## 当前限制
 
-0.0.1 是早期版本。已有检查覆盖核心逻辑、合成窗口、界面状态、本地读取适配器和图片解析；这些检查不能代替真实微信操作或不同 Mac 上的完整安装、权限、取钥与模型问答验证。微信版本、数据库或附件格式变化可能导致连接或解码失败。模型回答也可能出错，请结合参考记录核对。
+0.0.2 是早期版本。此版本已使用 macOS 26 SDK 编译，运行检查在 macOS 27 上完成；尚未在 macOS 26 实机验证。已有检查覆盖核心逻辑、合成窗口、界面状态、本地读取适配器和图片解析；这些检查不能代替真实微信操作或不同 Mac 上的完整安装、权限、取钥与模型问答验证。微信版本、数据库或附件格式变化可能导致连接或解码失败。模型回答也可能出错，请结合参考记录核对。
 
 ## 许可证
 

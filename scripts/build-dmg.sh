@@ -2,6 +2,11 @@
 set -euo pipefail
 SOURCE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${SOTTO_APP_OUTPUT:-$SOURCE_ROOT/artifacts/Sotto.app}"
+if [ ! -d "$APP" ]; then
+  echo "App not found: $APP" >&2
+  exit 1
+fi
+python3 "$SOURCE_ROOT/scripts/check-compatibility.py" "$APP"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 DMG="${SOTTO_DMG_OUTPUT:-$SOURCE_ROOT/artifacts/Sotto-${VERSION}-arm64.dmg}"
 STAGING="$(mktemp -d "$SOURCE_ROOT/artifacts/.sotto-dmg.XXXXXX")"
@@ -13,10 +18,6 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-if [ ! -d "$APP" ]; then
-  echo "App not found: $APP" >&2
-  exit 1
-fi
 if [ -e "$DMG" ]; then
   echo "DMG already exists; refusing to overwrite: $DMG" >&2
   exit 1
@@ -26,7 +27,7 @@ fi
 # limitation because this build has no Developer ID or notarization.
 cp -R "$APP" "$STAGING/Sotto.app"
 ln -s /Applications "$STAGING/Applications"
-cat > "$STAGING/安装说明.txt" <<'TEXT'
+cat > "$STAGING/安装说明.txt" <<TEXT
 Sotto · 安装说明
 
 1. 将左侧的「Sotto.app」拖入右侧的「Applications」文件夹。
@@ -37,14 +38,15 @@ Sotto · 安装说明
 如果系统阻止打开，请先核对下载来源，再到“系统设置 → 隐私与安全性”
 按系统提示决定是否允许打开；不要关闭 Gatekeeper 或 SIP。
 
-当前构建要求 Apple Silicon（arm64）、macOS 27.0 及以上。
+当前构建要求 Apple Silicon（arm64）、macOS 26.0 及以上。
 读取数据库需要 /usr/bin/python3；首次取钥还需要 Command Line Tools / LLDB，
-且目前限定微信 4.1.15，尚未完成 macOS 27 真实账号取钥验证。
+且目前限定微信 4.1.15，尚未完成真实账号取钥验证。
+本次使用 macOS 26 SDK 构建，运行检查在 macOS 27 上完成，尚未在 26 实机验证。
 具体连接要求与限制见发布页 README。
 
 Sotto 采用 AGPL-3.0-only。完整许可证及第三方声明位于应用包 Resources 内。
 源码、依赖源码、校验清单位于同一发布页：
-https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.1
+https://github.com/CyanTachyon/Sotto/releases/tag/v${VERSION}
 TEXT
 chmod 644 "$STAGING/安装说明.txt"
 
