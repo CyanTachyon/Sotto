@@ -346,6 +346,7 @@ private final class NetworkTests: PortableCheckCase {
             ("chat window eligibility / preview rejection / missing metadata / duplicate titles", checkWeChatWindowEligibility),
             ("AX focused title / exact emoji and spacing / aliases / unique identity", checkFocusedTitleIdentity),
             ("automatic connection / bounded backoff / no overlap / healthy idle / deletion", checkConnectionRecovery),
+            ("bubble drag containment / relative placement / screen boundaries", checkBubblePlacement),
             ("SSE Unicode / reasoning exclusion / interrupted stream", tests.testStreamingFramingAndInterruptions),
             ("Markdown blocks / table / nested list / partial code fence", tests.testMarkdownBlocksAndIncompleteFence),
             ("time / unknown / coverage", tests.testTimeFilterInclusiveAndUnknownExcluded),

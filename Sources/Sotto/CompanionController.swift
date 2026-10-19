@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-private typealias ViewState<Value> = SwiftUI.State<Value>
 import Combine
 import SottoCore
 import QuartzCore
@@ -10,23 +9,6 @@ private final class CompanionPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
     override func cancelOperation(_ sender: Any?) { collapse?() }
-}
-
-private struct CompanionBubble: View {
-    let open: () -> Void
-    @ViewState private var hovered = false
-    var body: some View {
-        Button(action: open) {
-            Image(systemName: "bubble.left.and.text.bubble.right.fill").font(.system(size: 19, weight: .medium))
-                .foregroundStyle(AppTheme.onAccent).frame(width: 38, height: 38)
-                .background(AppTheme.accent, in: Circle())
-                .overlay(Circle().stroke(AppTheme.border, lineWidth: 1))
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-                .opacity(hovered ? 1 : 0.82)
-        }.buttonStyle(.plain).help("打开当前微信会话的伴读面板")
-            .accessibilityLabel("打开 Sotto")
-            .onHover { hovered = $0 }.frame(width: 48, height: 48)
-    }
 }
 
 /// A transient companion belongs to the visible WeChat context, never to every foreground app.
@@ -66,6 +48,14 @@ private struct CompanionBubble: View {
         let windowID: CGWindowID
         init(_ target: WeChatWindow) { pid = target.pid; windowID = target.id }
     }
+    private struct BubblePress {
+        let target: TargetIdentity
+        let hostBounds: CGRect
+        let allowedOrigins: CGRect
+        let grabOffset: CGPoint
+    }
+    private var bubblePress: BubblePress?
+    private var bubbleAnchors: [(target: TargetIdentity, anchor: CGPoint)] = []
     // Keep the anchor while focus is temporarily unavailable or auxiliary UI hides
     // the panel. A restored Boolean must not expand a different native window.
     private var expandedTarget: TargetIdentity?
@@ -123,7 +113,15 @@ private struct CompanionBubble: View {
         hosting.layer?.cornerRadius = 14; hosting.layer?.masksToBounds = true
         (panel as? CompanionPanel)?.collapse = { [weak self] in self?.model.companionExpanded = false }
         bubble.isOpaque = false; bubble.backgroundColor = .clear; bubble.hasShadow = false
-        bubble.contentView = NSHostingView(rootView: CompanionBubble { [weak self] in _ = self?.present() })
+        bubble.contentView = CompanionBubbleView(
+            begin: { [weak self] in self?.beginBubbleInteraction(at: $0) ?? false },
+            drag: { [weak self] in self?.dragBubble(to: $0) ?? false },
+            end: { [weak self] in self?.endBubbleInteraction(at: $0, dragged: $1) },
+            cancel: { [weak self] in self?.cancelBubbleInteraction() },
+            open: { [weak self] in
+                self?.cancelBubbleInteraction()
+                return self?.present() ?? false
+            })
         model.$companionExpanded.removeDuplicates().dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.update() } }.store(in: &subscriptions)
         model.$companionEnabled.removeDuplicates().dropFirst().sink { [weak self] _ in DispatchQueue.main.async { self?.update() } }.store(in: &subscriptions)
         if observeFocus { observeTransientInteractions() }
@@ -148,7 +146,11 @@ private struct CompanionBubble: View {
         for observer in focusObservers { NotificationCenter.default.removeObserver(observer) }
     }
     @discardableResult func present() -> Bool {
+        present(expectedTarget: nil)
+    }
+    @discardableResult private func present(expectedTarget: TargetIdentity?) -> Bool {
         guard model.companionEnabled, relevantForeground(), now() >= spaceSettlesAt, let target = targetProvider() else { return false }
+        guard expectedTarget == nil || expectedTarget == TargetIdentity(target) else { return false }
         model.observeConversationWindow(target)
         collapseForDifferentTarget(target)
         guard position(target) else { return false }
@@ -169,6 +171,7 @@ private struct CompanionBubble: View {
         hideSurface()
     }
     private func hideSurface() {
+        cancelBubbleInteraction()
         cancelBlurCheck(disarm: true)
         trackingMenus.removeAll(); activePopovers.removeAll()
         display(.hidden)
@@ -233,6 +236,7 @@ private struct CompanionBubble: View {
         expandedTarget = nil
     }
     private func display(_ desired: Presentation, takeFocus: Bool = false) {
+        if desired != .bubble { cancelBubbleInteraction() }
         // Polling cannot restart a transition. Hidden/target/Space changes cancel
         // immediately; no completion ever orders a window back onto the screen.
         if desired == presentation {
@@ -368,17 +372,104 @@ private struct CompanionBubble: View {
             })
         }
     }
-    @discardableResult private func position(_ target: WeChatWindow) -> Bool {
+    private func cancelBubbleInteraction() {
+        bubblePress = nil
+        (bubble.contentView as? CompanionBubbleView)?.cancelInteraction()
+    }
+    private func validBubbleTarget(usingPolledTarget: Bool = false) -> WeChatWindow? {
+        guard model.companionEnabled, !model.companionExpanded,
+              !model.showSettings, !model.showConnection, !model.showSources,
+              presentation == .bubble, bubble.isVisible,
+              relevantForeground(), now() >= spaceSettlesAt,
+              let target = usingPolledTarget ? self.lastTarget : targetProvider(), let lastTarget,
+              TargetIdentity(target) == TargetIdentity(lastTarget) else { return nil }
+        return target
+    }
+    private func beginBubbleInteraction(at point: CGPoint) -> Bool {
+        cancelBubbleInteraction()
+        guard let target = validBubbleTarget(), position(target), bubble.frame.contains(point),
+              let layout = bubbleLayout(target) else { return false }
+        bubblePress = BubblePress(target: TargetIdentity(target), hostBounds: target.bounds,
+            allowedOrigins: layout.placement.allowedOriginRect,
+            grabOffset: CGPoint(x: point.x - bubble.frame.minX, y: point.y - bubble.frame.minY))
+        return true
+    }
+    private func dragBubble(to point: CGPoint) -> Bool {
+        // Mouse movement can arrive far more often than the window polling
+        // timer. Keep AX reads off this hot path; polling cancels changed hosts,
+        // and mouse-down/up separately verify the current target.
+        guard let press = bubblePress, let target = validBubbleTarget(usingPolledTarget: true),
+              press.target == TargetIdentity(target), press.hostBounds == target.bounds,
+              let layout = bubbleLayout(target), press.allowedOrigins == layout.placement.allowedOriginRect,
+              let anchor = layout.placement.normalizedAnchor(for:
+                CGPoint(x: point.x - press.grabOffset.x, y: point.y - press.grabOffset.y)) else {
+            cancelBubbleInteraction(); update(); return false
+        }
+        if let index = bubbleAnchors.firstIndex(where: { $0.target == press.target }) {
+            bubbleAnchors[index].anchor = anchor
+        } else {
+            bubbleAnchors.append((press.target, anchor))
+            if bubbleAnchors.count > 32 { bubbleAnchors.removeFirst() }
+        }
+        // A quick grab can begin while the old panel is fading out. Finish that
+        // collapse before repositioning its hidden frame next to the new anchor.
+        if panel.isVisible {
+            animationGeneration &+= 1; animationTask?.cancel(); animationTask = nil
+            panel.orderOut(nil); setSurface(alpha: 1, scale: 1); panel.ignoresMouseEvents = false
+        }
+        let positioned = position(target)
+        // AppKit can align native window origins to pixels. Remember the point
+        // the user actually sees, rather than an unrendered fractional origin.
+        if positioned, let actual = layout.placement.normalizedAnchor(for: bubble.frame.origin),
+           let index = bubbleAnchors.firstIndex(where: { $0.target == press.target }) {
+            bubbleAnchors[index].anchor = actual
+        }
+        return positioned
+    }
+    private func endBubbleInteraction(at point: CGPoint, dragged: Bool) {
+        guard let press = bubblePress else { return }
+        guard let target = validBubbleTarget(), press.target == TargetIdentity(target),
+              target.bounds == press.hostBounds, let layout = bubbleLayout(target),
+              layout.placement.allowedOriginRect == press.allowedOrigins else {
+            cancelBubbleInteraction(); update(); return
+        }
+        if dragged {
+            _ = dragBubble(to: point)
+            cancelBubbleInteraction()
+            return
+        }
+        cancelBubbleInteraction()
+        guard bubble.frame.contains(point) else { return }
+        _ = present(expectedTarget: press.target)
+    }
+    private func bubbleLayout(_ target: WeChatWindow) -> (placement: BubblePlacement, area: CGRect, visible: CGRect)? {
         let rect = target.appKitFrame
         let screen = NSScreen.screens.max { a, b in a.frame.intersection(rect).width * a.frame.intersection(rect).height < b.frame.intersection(rect).width * b.frame.intersection(rect).height }
         let visible = screen?.visibleFrame ?? rect
         let area = rect.intersection(visible)
-        guard !area.isNull, area.width >= 380, area.height >= 300 else { return false }
-        if target != lastTarget {
-            bubble.setFrameOrigin(.init(x: area.maxX - 52, y: max(area.minY + 100, area.maxY - 170)))
+        guard !area.isNull, area.width >= 380, area.height >= 300,
+              let placement = BubblePlacement(hostFrame: rect, screenVisibleFrame: visible) else { return nil }
+        return (placement, area, visible)
+    }
+    @discardableResult private func position(_ target: WeChatWindow) -> Bool {
+        guard let layout = bubbleLayout(target) else { cancelBubbleInteraction(); return false }
+        if let press = bubblePress,
+           press.target != TargetIdentity(target) || press.hostBounds != target.bounds || press.allowedOrigins != layout.placement.allowedOriginRect {
+            cancelBubbleInteraction()
+        }
+        let identity = TargetIdentity(target)
+        let anchor = bubbleAnchors.first(where: { $0.target == identity })?.anchor
+        guard let frame = layout.placement.frame(anchor: anchor) else { return false }
+        let bubbleMoved = bubble.frame != frame
+        if bubbleMoved { bubble.setFrame(frame, display: true) }
+        if target != lastTarget || bubbleMoved {
+            let area = layout.area, visible = layout.visible
             let width = min(max(panel.frame.width, 360), min(480, area.width - 16))
             let height = min(max(panel.frame.height, 460), max(area.height - 28, min(460, visible.height - 28)))
-            panel.setFrame(.init(x: area.maxX - width - 10, y: max(visible.minY + 10, area.maxY - height - 14), width: width, height: height), display: true)
+            let x = anchor == nil ? area.maxX - width - 10 : min(area.maxX - width - 8, max(area.minX + 8, frame.maxX - width - 6))
+            let upperY = min(visible.maxY - height - 10, area.maxY - height - 14)
+            let y = max(visible.minY + 10, min(upperY, anchor == nil ? upperY : frame.maxY + 108 - height))
+            panel.setFrame(.init(x: x, y: y, width: width, height: height), display: true)
             lastTarget = target
         }
         return true

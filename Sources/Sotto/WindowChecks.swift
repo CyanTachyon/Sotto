@@ -317,6 +317,7 @@ extension AppDelegate {
             try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             var checks = focusedWindowTargetChecks()
             checks.merge(await ownWindowTargetChecks(output: output)) { _, new in new }
+            checks.merge(await ownBubbleDragChecks(output: output)) { _, new in new }
             checks.merge(await ownWindowExpansionChecks(output: output)) { _, new in new }
             checks.merge(await ownWindowInteractionChecks(output: output)) { _, new in new }
             var instant: TimeInterval = 100
