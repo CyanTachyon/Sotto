@@ -6,15 +6,25 @@ Sotto 作为菜单栏工具运行，在微信聊天窗口旁显示气泡，点�
 
 ## 下载与安装
 
-当前版本为 **0.0.3（build 6）**，面向 **Apple Silicon（arm64）、macOS 26.0 及以上**。
+当前版本为 **0.0.4（build 7）**，面向 **Apple Silicon（arm64）、macOS 26.0 及以上**。
 
-1. 从 [v0.0.3 发布页](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.3) 下载 `Sotto-0.0.3-arm64.dmg`。
+1. 从 [v0.0.4 发布页](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.4) 下载 `Sotto-0.0.4-arm64.dmg`。
 2. 打开 DMG，将「Sotto.app」拖入「Applications」，再从「应用程序」启动。
 3. 通过菜单栏 Sotto 图标打开连接与设置；微信聊天窗口可用时，也可点击窗口旁的气泡。
 
 **此版本使用本机自签名，没有 Apple Developer ID 签名或 Apple 公证。** macOS 可能显示开发者无法验证等警告，或阻止应用启动。请先核对下载来源，再按 macOS“系统设置 → 隐私与安全性”提供的方式决定是否允许打开；不要关闭 Gatekeeper 或 SIP。
 
 本地数据库读取依赖 `/usr/bin/python3`；首次连接密钥初始化还依赖 Command Line Tools 提供的 LLDB。若本机缺少相应工具，需要先安装。发布包带有所需的 SQLCipher、Zstandard 和 OpenSSL 动态库，使用发布包无需自行安装 Homebrew 依赖。
+
+## 应用内更新
+
+从 0.0.4 起，可在菜单栏或“外观与设置 → 软件更新”中点击“检查更新…”，从本项目的 GitHub Releases 获取新版本。也可开启“自动检查新版本”；默认关闭，仅检查，不自动下载安装。发现新版时菜单栏会显示提示，点击后查看更新说明并决定是否下载、重启安装。
+
+更新列表和安装包均使用内置公钥校验 Ed25519 签名，下载包在解压前验证。更新检查不发送聊天记录、模型 API Key 或数据库密钥，不启用 Sparkle 的系统统计上传；请求仍会由 GitHub 按其服务规则处理。
+
+安装需要退出并重新打开 Sotto。生成回答或初始化连接时不允许安装；任意会话中存在回答或草稿时，会先提醒保存并要求明确确认。更新不会将这些内容改为落盘存储。账号和配置保留；安装目录没有写入权限时，系统可能要求授权。应用仍为本机自签名，自动更新不能代替 Developer ID 签名或公证，也不能保证跨设备的系统权限连续性。
+
+**0.0.3 及更早版本没有更新器，需要先手动安装一次 0.0.4 或更新版本。** 请从 Applications 中运行，避免直接从只读 DMG 启动。
 
 ## 首次使用
 
@@ -91,7 +101,7 @@ JSON 示例（虚构内容）：
 
 构建需要 macOS 26 或更新的 SDK、Command Line Tools、SwiftPM、Python 3，以及系统的 make、Perl 和 Tcl。依赖脚本从固定版本的官方源码构建 SQLCipher、Zstandard、OpenSSL，统一以 arm64、macOS 26.0 为目标；不会直接复制随本机系统升级的 Homebrew 二进制。不要求安装完整 Xcode。首次构建需要联网下载依赖，也可通过 `SOTTO_DEPENDENCY_SOURCES` 指定已有的三份源码归档目录。
 
-0.0.3 源码构建使用的依赖版本为 SQLCipher 4.19.0、Zstandard（zstd）1.5.7、OpenSSL 4.0.2；对应依赖源码随同一 [Release](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.3) 的 `Sotto-0.0.3-dependency-sources.zip` 提供，详见 [ThirdParty/NOTICES.md](ThirdParty/NOTICES.md)。
+0.0.4 源码构建使用 SQLCipher 4.19.0、Zstandard（zstd）1.5.7、OpenSSL 4.0.2，以及固定为 2.10.0 的 Sparkle 官方 SwiftPM 二进制发行包。前三者从源码构建；Sparkle 的下载由 SwiftPM 按固定校验值验证，打包时保留链接和权限、精简为 arm64，并使用原有本机身份签名。依赖源码及 Sparkle 对应的发行构建输入随同一 [Release](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.4) 的 `Sotto-0.0.4-dependency-sources.zip` 提供，详见 [ThirdParty/NOTICES.md](ThirdParty/NOTICES.md)。
 
 ```sh
 ./scripts/check.sh
@@ -109,9 +119,29 @@ python3 scripts/check-compatibility.py artifacts/Sotto.app
 
 本机签名材料保存在 `~/Library/Application Support/moe.tachyon.sotto.build-signing`，请勿提交或分发。创建后构建会复用该身份，缺失或不一致时停止；自签名仅提供本机构建身份连续性，不能代替 Developer ID 或公证。
 
+### 发布自我更新
+
+本项目的生产更新公钥位于 `Resources/UpdatePublicKey.txt`，只允许对应私钥签名的更新。更新私钥与代码签名身份用途不同，不放入仓库或应用，不使用系统钥匙串；仅保存在发布者的 `~/Library/Application Support/moe.tachyon.sotto.update-signing/private-key`（目录 `0700`、文件 `0600`）。保留私钥备份，丢失时不可自动替换现有公钥。
+
+首次建立全新的更新身份时，在尚无公钥和私钥的自有项目中执行 `swift scripts/update-signing.swift setup Resources/UpdatePublicKey.txt`；已有公钥但缺少对应私钥时会停止，不会换钥。Fork 需要设置自己的更新源与新公钥，不能向原项目用户发布更新。普通构建只需要公钥，不读取更新私钥。
+
+发布时先构建、签名并打包完整应用 ZIP，递增 build，再使用官方 Sparkle 2.10.0 发行包中的工具生成签名 feed：
+
+```sh
+python3 scripts/prepare-update.py \
+  --app artifacts/Sotto.app \
+  --archive artifacts/Sotto-0.0.4-macOS-arm64.zip \
+  --notes /absolute/path/to/release-notes.txt \
+  --output /absolute/path/to/update-output \
+  --sparkle-directory /absolute/path/to/Sparkle-2.10.0 \
+  --previous-build 6
+```
+
+脚本核验应用/ZIP逐文件一致、内置公钥、版本递增、签名和兼容要求；使用文件中的私钥签名，不调用钥匙串。将生成的 `appcast.xml` 与它引用的完整 ZIP 一起上传到同一个 GitHub Release，核对上传哈希后再发布；更新源固定为 `https://github.com/CyanTachyon/Sotto/releases/latest/download/appcast.xml`。**签名后的 XML 不得再编辑**，更新说明直接包含在已签名 feed 内。首次启用后的每个正式 Release 都必须携带正确签名的 `appcast.xml`，否则旧版无法从 latest 地址发现新版。
+
 ## 当前限制
 
-0.0.3 是早期版本。此版本已使用 macOS 26 SDK 编译，运行检查在 macOS 27 上完成；尚未在 macOS 26 实机验证。已有检查覆盖核心逻辑、合成窗口、界面状态、本地读取适配器和图片解析；这些检查不能代替真实微信操作或不同 Mac 上的完整安装、权限、取钥与模型问答验证。微信版本、数据库或附件格式变化可能导致连接或解码失败。模型回答也可能出错，请结合参考记录核对。
+0.0.4 是早期版本。此版本已使用 macOS 26 SDK 编译，运行检查在 macOS 27 上完成；尚未在 macOS 26 实机验证。已有检查覆盖核心逻辑、合成窗口、界面状态、本地读取适配器和图片解析；这些检查不能代替真实微信操作或不同 Mac 上的完整安装、权限、取钥与模型问答验证。微信版本、数据库或附件格式变化可能导致连接或解码失败。模型回答也可能出错，请结合参考记录核对。
 
 ## 许可证
 

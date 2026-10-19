@@ -1,6 +1,6 @@
 # Third-party components
 
-These notices describe the components included in the Sotto 0.0.3 release.
+These notices describe the components included in the Sotto 0.0.4 release.
 Their original notices and licenses remain in effect for the respective code.
 Sotto's project license does not replace these notices.
 
@@ -83,3 +83,15 @@ source archives, the dependency build script and a sanitized build manifest.
 A rebuild uses the builder's own signing identity, not the original publisher's
 private signing material. These inputs support reconstructing the program;
 they do not promise byte-for-byte reproduction of signed binaries.
+
+## Sparkle 2.10.0
+
+Sparkle provides the in-app update framework, installer helpers and signature validation. The complete upstream copyright and dependency notices are retained in [Sparkle-LICENSE.txt](Sparkle-LICENSE.txt). It uses the MIT license, with the additional upstream component notices in that file.
+
+- Project and exact source: <https://github.com/sparkle-project/Sparkle/tree/2.10.0>
+- SwiftPM binary input: <https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-for-Swift-Package-Manager.zip>
+- SwiftPM SHA-256: `17e28312b8e18ab7cdbbe09a6fb28cc55a5479ec6c371dbc07cdecd2a14fd959`
+- Official release tools: <https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz>
+- Release tools SHA-256: `c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c`
+
+The package is pinned to 2.10.0 in Package.swift and Package.resolved. Packaging preserves symlinks and modes, strips unused architectures to arm64, then signs the framework and nested helpers with Sotto's release identity; it does not alter Sparkle source. The dependency-input archive includes the exact official SwiftPM ZIP and tool distribution in addition to the three source-built libraries above.
