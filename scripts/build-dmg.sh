@@ -30,7 +30,7 @@ cat > "$STAGING/安装说明.txt" <<'TEXT'
 Sotto · 安装说明
 
 1. 将左侧的「Sotto.app」拖入右侧的「Applications」文件夹。
-2. 从「应用程序」或 Launchpad 打开 Sotto。
+2. 从「应用程序」打开 Sotto；通过微信旁的气泡或菜单栏图标使用。
 3. 首次连接微信时，按应用内提示授予“完全磁盘访问”和“辅助功能”权限。
 
 本构建使用本机自签名身份，没有 Apple Developer ID，也没有公证。

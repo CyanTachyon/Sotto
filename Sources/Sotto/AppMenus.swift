@@ -33,15 +33,6 @@ import AppKit
         main.addItem(NSMenuItem(title: edit.title, action: nil, keyEquivalent: ""))
         main.items.last?.submenu = edit
 
-        let window = NSMenu(title: "窗口")
-        window.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        window.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
-        window.addItem(.separator())
-        let mainWindowItem = window.addItem(withTitle: "Sotto", action: #selector(AppDelegate.showMainWindow), keyEquivalent: "0")
-        mainWindowItem.target = NSApp.delegate
-        window.addItem(withTitle: "前置全部窗口", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
-        main.addItem(NSMenuItem(title: window.title, action: nil, keyEquivalent: ""))
-        main.items.last?.submenu = window
         return main
     }
 }

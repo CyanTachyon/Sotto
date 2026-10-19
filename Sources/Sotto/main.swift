@@ -137,6 +137,7 @@ final class MainWindow: NSWindow {
     var connectionWindow: AuxiliaryWindow?
     var settingsWindow: AuxiliaryWindow?
     var sourcesWindow: AuxiliaryWindow?
+    private var showingUnavailableNotice = false
     let experiencePreview = Bundle.main.bundleIdentifier == "moe.tachyon.sotto.ExperiencePreview"
     let appearancePreview = CommandLine.arguments.contains("--appearance-preview")
     var testMode: Bool { experiencePreview || appearancePreview || CommandLine.arguments.contains("--companion-window-check") || CommandLine.arguments.contains("--experience-check") || CommandLine.arguments.contains("--appearance-check") || CommandLine.arguments.contains("--ui-test") || CommandLine.arguments.contains("--synthetic-model-check") }
@@ -154,25 +155,19 @@ final class MainWindow: NSWindow {
             model.config = ModelConfig()
             model.identity = "外观预览 · 全部为虚构内容"
         }
-        // A production launch is a regular application with a main window,
-        // Dock icon and Command-Tab entry. Test/preview modes stay accessory so
-        // their synthetic fixtures do not appear as a second app. The companion
-        // is still a floating panel and the status item remains available.
-        // NOTE: the 0.5.2 input-method Space behavior was fixed with an
-        // accessory-only app; making the production app regular requires real
-        // Chinese IME/desktop retesting before calling that regression closed.
-        NSApp.setActivationPolicy(testMode || appearancePreview ? .accessory : .regular)
+        // Use the same accessory policy in production and synthetic checks.
+        // A regular app can leave its native IME candidate window on a former
+        // Space while the nonactivating companion moves to its host's Space.
+        NSApp.setActivationPolicy(.accessory)
         NSApp.mainMenu = AppMenus.makeMainMenu()
-        if let windowsMenu = NSApp.mainMenu?.items.last?.submenu { NSApp.windowsMenu = windowsMenu }
         AppAppearanceController.shared.start()
-        if !appearancePreview { createMainWindow() }
+        if testMode && !appearancePreview { createFixturePanel() }
         model.$showConnection.removeDuplicates().sink { [weak self] visible in self?.showConnection(visible) }.store(in: &observations)
         model.$showSettings.removeDuplicates().sink { [weak self] visible in self?.showSettings(visible) }.store(in: &observations)
         model.$showSources.removeDuplicates().sink { [weak self] visible in self?.showSources(visible) }.store(in: &observations)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         status.button?.image = NSImage(systemSymbolName: "bubble.left.and.text.bubble.right", accessibilityDescription: "Sotto")
         let menu = NSMenu()
-        menu.addItem(withTitle: "显示主窗口", action: #selector(showMainWindow), keyEquivalent: "")
         menu.addItem(withTitle: "打开微信旁的伴读", action: #selector(showPanel), keyEquivalent: "")
         menu.addItem(withTitle: "连接设置…", action: #selector(connection), keyEquivalent: "")
         menu.addItem(withTitle: "外观与设置…", action: #selector(settings), keyEquivalent: ",")
@@ -185,7 +180,7 @@ final class MainWindow: NSWindow {
             }
         }
         if !appearancePreview && (!testMode || experiencePreview) {
-            companion = CompanionController(model: model, fixtureWindow: panel)
+            companion = CompanionController(model: model, fixtureWindow: testMode ? panel : nil)
         }
         if testMode {
             model.$companionEnabled.dropFirst().sink { [weak self] enabled in
@@ -197,11 +192,8 @@ final class MainWindow: NSWindow {
             }.store(in: &observations)
         }
         if !CommandLine.arguments.contains("--background") {
-            if testMode {
-                showPanel()
-            } else if !CommandLine.arguments.contains("--connect") && !CommandLine.arguments.contains("--assist-setup") {
-                showMainWindow()
-            }
+            if testMode { showPanel() }
+            else if model.root.isEmpty { connection() }
         }
         if appearancePreview { return }
         if let i = CommandLine.arguments.firstIndex(of: "--companion-window-check"), CommandLine.arguments.count > i + 1 { runCompanionWindowChecks(output: URL(fileURLWithPath: CommandLine.arguments[i+1])) }
@@ -215,25 +207,19 @@ final class MainWindow: NSWindow {
         } else if CommandLine.arguments.contains("--connect") { model.showConnection = true }
         if !testMode { model.writeConnectionStatus(); if !model.root.isEmpty && !CommandLine.arguments.contains("--assist-setup") { model.assistSetup(openPermissions: false) } }
     }
-    /// The production main window is a regular AppKit window hosting the same
-    /// conversation UI as the companion. Test modes reuse it as a synthetic
-    /// fixture, with a different title/size and no persisted frame.
-    private func createMainWindow() {
-        let fixture = testMode
+    /// Only explicitly requested developer checks own a standalone conversation.
+    /// Production uses the companion and auxiliary settings/connection windows.
+    private func createFixturePanel() {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let available = screen.visibleFrame
-        let desired = fixture ? NSSize(width: min(400, available.width - 32), height: min(600, available.height - 80))
-                             : NSSize(width: min(460, available.width - 40), height: min(720, available.height - 90))
+        let desired = NSSize(width: min(400, available.width - 32), height: min(600, available.height - 80))
         panel = MainWindow(contentRect: NSRect(origin: .zero, size: desired), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        panel.title = fixture ? "Sotto · 合成检查" : "Sotto"
-        panel.titleVisibility = fixture ? .hidden : .visible
-        panel.titlebarAppearsTransparent = fixture
+        panel.title = "Sotto · 合成检查"
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
         panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false; panel.collectionBehavior = []
-        panel.minSize = NSSize(width: min(fixture ? 360 : 420, desired.width), height: min(fixture ? 480 : 560, desired.height))
-        panel.contentView = NSHostingView(rootView: FloatView(model: model,
-            onConversationPickerChange: { _ in },
-            showsCollapseControl: fixture))
-        if !fixture { _ = panel.setFrameAutosaveName("SottoMainWindow") }
+        panel.minSize = NSSize(width: min(360, desired.width), height: min(480, desired.height))
+        panel.contentView = NSHostingView(rootView: FloatView(model: model))
         panel.center()
         panel.setFrame(panel.constrainFrameRect(panel.frame, to: screen), display: false)
         model.isStandaloneConversationVisible = { [weak self] in
@@ -289,16 +275,28 @@ final class MainWindow: NSWindow {
     }
     @objc func showPanel() {
         if model.companionEnabled, companion?.present() == true { panel?.orderOut(nil); return }
-        showMainWindow()
-    }
-    @objc func showMainWindow() {
-        if !testMode { NSApp.setActivationPolicy(.regular) }
+        guard testMode else {
+            if model.root.isEmpty { connection() } else { explainUnavailableCompanion() }
+            return
+        }
         guard let panel else { return }
         companion?.hide()
         model.companionExpanded = false
         if panel.isMiniaturized { panel.deminiaturize(nil) }
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+    private func explainUnavailableCompanion() {
+        guard !showingUnavailableNotice else { return }
+        showingUnavailableNotice = true
+        defer { showingUnavailableNotice = false }
+        let alert = NSAlert()
+        alert.messageText = "请先打开微信聊天"
+        alert.informativeText = "回到微信并打开聊天窗口，再点击窗口旁的 Sotto 气泡。若没有看到气泡，可在连接设置中检查连接与权限。"
+        alert.addButton(withTitle: "知道了")
+        alert.addButton(withTitle: "连接设置")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertSecondButtonReturn { connection() }
     }
     @objc func connection() { if model.showConnection { showConnection(true) } else { model.showConnection = true } }
     @objc func settings() { if model.showSettings { showSettings(true) } else { model.showSettings = true } }
@@ -311,7 +309,7 @@ final class MainWindow: NSWindow {
         if model.initializing { NSSound.beep(); return .terminateCancel }
         model.cancel(); return .terminateNow
     }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showMainWindow(); return true }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showPanel(); return true }
     func runSyntheticModelCheck() {
         guard let index = CommandLine.arguments.firstIndex(of: "--synthetic-model-check"), CommandLine.arguments.count > index + 1 else { exit(2) }
         let output = URL(fileURLWithPath: CommandLine.arguments[index + 1])

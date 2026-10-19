@@ -27,7 +27,6 @@ private struct PrimaryActionStyle: ButtonStyle {
 struct FloatView: View {
     @ObservedObject var model: AppModel
     var onConversationPickerChange: (Bool) -> Void = { _ in }
-    var showsCollapseControl: Bool = true
     @UIState private var followOutput = true
     @UIState private var userScrolling = false
     @UIState private var selectingConversation = false
@@ -101,7 +100,7 @@ struct FloatView: View {
                 .disabled(!model.canStartNewConversation)
                 .help("清空当前伴读回答和上下文，开始新对话；微信记录不受影响。")
                 .accessibilityLabel("新对话")
-            if model.companionExpanded && showsCollapseControl {
+            if model.companionExpanded {
                 Button { model.companionExpanded = false } label: { Label("收起", systemImage: "chevron.down") }
                     .buttonStyle(.borderless).help("收起到气泡，保留当前回答").accessibilityLabel("收起到微信气泡")
             }

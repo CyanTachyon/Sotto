@@ -54,12 +54,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 <key>CFBundleShortVersionString</key><string>0.0.1</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
 <key>LSMultipleInstancesProhibited</key><true/>
+<key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHumanReadableCopyright</key><string>Sotto · 本机微信阅读助手</string>
