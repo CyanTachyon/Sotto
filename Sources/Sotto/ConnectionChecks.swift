@@ -3,7 +3,7 @@ import SottoCore
 
 @MainActor func connectionModelChecks() async throws -> [String: Bool] {
     let defaults = UserDefaults.standard
-    let saved = ["databaseRoot", "selectedDatabaseGroupV3", "followCurrentConversationV4"].map { ($0, defaults.object(forKey: $0)) }
+    let saved = ["databaseRoot"].map { ($0, defaults.object(forKey: $0)) }
     defer { for (key, value) in saved { if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) } } }
     let accountA = "/synthetic/connection-a/db_storage", accountB = "/synthetic/connection-b/db_storage"
     let manifest = #"{"keys":{"contact/contact.db":{"enc_key":"0000000000000000000000000000000000000000000000000000000000000000"}}}"#
@@ -99,6 +99,7 @@ import SottoCore
     model.databaseConnectionSource.readMessages = { root, chat, _ in records(root, chat) }
     _ = try await model.readDatabaseRecords(root: accountA, chat: "synthetic-a", window: range)
     checks["later_successful_message_query_clears_pending_verification"] = model.hasDatabaseConnection && !model.messageQueryNeedsVerification
+    model.selectGroup("synthetic-a")
     model.config.endpoint = "ftp://invalid.example"; model.config.consentEndpoint = model.config.endpoint
     model.ask()
     for _ in 0..<100 { if !model.busy { break }; try await Task.sleep(for: .milliseconds(5)) }

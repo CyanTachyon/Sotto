@@ -176,7 +176,7 @@ func focusedWindowTargetChecks() -> [String: Bool] {
     NSApp.activate()
     defer { first.close(); second.close(); standalone.close() }
     let model = AppModel(testMode: true)
-    model.autoFollow = false; model.companionEnabled = true
+    model.companionEnabled = true
     model.question = "合成窗口切换草稿"; model.streamingText = "合成部分回答"; model.busy = true
     do {
         let snapshot = try SyntheticScenario.snapshot()
@@ -325,7 +325,7 @@ extension AppDelegate {
             let area = screen.visibleFrame.insetBy(dx: 12, dy: 12)
             let primaryTop = NSScreen.screens[0].frame.maxY
             var target: WeChatWindow? = .init(id: 123, pid: getpid(), bounds: .init(x: area.minX, y: primaryTop - area.maxY, width: area.width, height: area.height))
-            model.autoFollow = false; model.companionEnabled = true; model.companionExpanded = false
+            model.companionEnabled = true; model.companionExpanded = false
             let controller = CompanionController(model: model, fixtureWindow: panel, targetProvider: { target }, relevantForeground: { relevant }, now: { instant }, observeWorkspace: false, observeFocus: false, reducedMotion: { true })
             companion = controller
             checks["waits_for_stable_target"] = !controller.panel.isVisible && !controller.bubble.isVisible

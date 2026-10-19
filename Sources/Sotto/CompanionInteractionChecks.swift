@@ -21,7 +21,7 @@ import QuartzCore
     defer { host.close(); auxiliary.close(); standalone.close() }
 
     let model = AppModel(testMode: true)
-    model.autoFollow = false; model.companionEnabled = true
+    model.companionEnabled = true
     model.question = "合成草稿：失焦后仍保留"; model.streamingText = "合成流式回答"; model.busy = true
     do {
         let snapshot = try SyntheticScenario.snapshot()

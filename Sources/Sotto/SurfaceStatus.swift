@@ -19,7 +19,7 @@ import CoreGraphics
             "wechatOnScreen": target != nil, "wechatZ": targetIndex ?? -1,
             "wechatBounds": targetIndex.flatMap { windows[$0][kCGWindowBounds as String] } ?? NSNull(),
             "answerCount": model.turns.count, "streamingCharacters": model.streamingText.count,
-            "autoFollow": model.autoFollow, "followState": model.followState,
+            "followingWindow": model.isFollowingWindow, "manualConversationSelection": model.hasManualConversationSelection, "needsConversationSelection": model.needsConversationSelection, "followState": model.followState,
             "checkedAt": Date().timeIntervalSince1970]
         let directory = experiencePreview ? Bundle.main.bundleURL.deletingLastPathComponent() : model.local?.directory
         if let directory, let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {

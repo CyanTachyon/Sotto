@@ -32,6 +32,7 @@ struct FloatView: View {
     @UIState private var selectingConversation = false
     @UIState private var composerFocusRequest = 0
     private var followingConfirmed: Bool { model.followState == "confirmed" }
+    private var confirmingWindow: Bool { model.isFollowingWindow && !followingConfirmed }
     private var savedImports: [ChatSession] { model.sessions.filter { $0.origin != .demo } }
     private var canSend: Bool { model.canAsk && !model.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var composerContext: MessageComposerContext {
@@ -118,42 +119,46 @@ struct FloatView: View {
     }
     private var target: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text(model.current?.origin == .demo ? "示例聊天 · 虚构内容" : model.live ? "当前会话" : "聊天记录")
-                    .font(.caption).foregroundStyle(AppTheme.textSecondary)
-                Spacer()
-                if !model.groups.isEmpty {
-                    Toggle("自动跟随", isOn: $model.autoFollow).toggleStyle(.switch).controlSize(.mini)
-                        .disabled(!model.live)
-                        .help(model.live ? "跟随微信独立聊天窗口的标题" : "导入记录使用固定时间范围，不支持自动跟随")
-                        .onChange(of: model.autoFollow) { _, _ in model.followChanged() }
-                }
-            }
+            Text(model.current?.origin == .demo ? "示例聊天 · 虚构内容" : model.live ? "当前会话" : "聊天记录")
+                .font(.caption).foregroundStyle(AppTheme.textSecondary)
             if model.live && !model.groups.isEmpty {
-                Button { selectingConversation = true } label: {
+                if model.needsConversationSelection {
+                    Text("请选择当前会话").font(.system(size: 17, weight: .semibold))
+                } else if model.isFollowingWindow {
                     HStack {
                         Image(systemName: model.selectedGroup?.isGroup == false ? "person.crop.circle" : "person.2")
                             .foregroundStyle(AppTheme.accent)
-                        Text(model.autoFollow && !followingConfirmed ? "请选择当前会话" : model.selectedGroup?.name ?? "选择会话")
+                        Text(confirmingWindow ? "正在确认当前会话…" : model.selectedGroup?.name ?? "当前会话")
                             .font(.system(size: 17, weight: .semibold)).lineLimit(2)
-                        Spacer(); Image(systemName: "chevron.down").font(.caption).foregroundStyle(AppTheme.textSecondary)
-                    }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                    }
+                } else {
+                    Button { selectingConversation = true } label: {
+                        HStack {
+                            Image(systemName: model.selectedGroup?.isGroup == false ? "person.crop.circle" : "person.2")
+                                .foregroundStyle(AppTheme.accent)
+                            Text(model.selectedGroup?.name ?? "选择会话")
+                                .font(.system(size: 17, weight: .semibold)).lineLimit(2)
+                            Spacer(); Image(systemName: "chevron.down").font(.caption).foregroundStyle(AppTheme.textSecondary)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
             } else if model.current != nil {
                 Text(model.current?.name ?? "聊天记录").font(.system(size: 17, weight: .semibold)).lineLimit(2)
             }
             if model.current != nil || !model.groups.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
-                    Circle().fill(model.autoFollow && !followingConfirmed ? AppTheme.warning : AppTheme.success)
+                    Circle().fill(model.needsConversationSelection || confirmingWindow ? AppTheme.warning : AppTheme.success)
                         .frame(width: 6, height: 6).padding(.top, 4)
-                    Text(model.autoFollow && !followingConfirmed ? "尚未确认会话，已暂停发送" : model.autoFollow ? "已跟随微信窗口" : model.selectedGroup == nil && model.current == nil ? "连接已就绪，请选择会话" : "固定使用此会话，切换微信不会改变这里")
+                    Text(conversationStatus)
                         .font(.caption).foregroundStyle(AppTheme.textSecondary)
                 }
             }
-            if model.autoFollow && !followingConfirmed && !model.groups.isEmpty {
-                Text("请在微信中将聊天「在独立窗口中打开」，再点击伴读气泡。主窗口内切换会话暂时需要手动选择。")
+            if model.needsConversationSelection && !model.groups.isEmpty {
+                Text("微信独立聊天会自动识别。未能识别时，请选择当前会话。")
                     .font(.caption).foregroundStyle(AppTheme.textSecondary).lineSpacing(3)
-                Button("选择会话") { selectingConversation = true }.font(.callout)
+                Button("选择会话") { selectingConversation = true }.buttonStyle(PrimaryActionStyle())
+            }
+            if (model.needsConversationSelection || confirmingWindow) && !model.groups.isEmpty {
                 DisclosureGroup("跟随状态") {
                     Text(model.followMessage.isEmpty ? model.identity : model.followMessage).font(.caption).textSelection(.enabled)
                 }.font(.caption).foregroundStyle(AppTheme.textSecondary)
@@ -163,6 +168,15 @@ struct FloatView: View {
                 .onDisappear { onConversationPickerChange(false) }
         }
         .onChange(of: selectingConversation) { _, presented in onConversationPickerChange(presented) }
+    }
+    private var conversationStatus: String {
+        if model.needsConversationSelection { return "未识别到当前会话，选择后即可提问" }
+        if confirmingWindow { return "正在确认微信窗口，已暂停发送" }
+        if model.isFollowingWindow { return "已跟随微信窗口" }
+        if model.hasManualConversationSelection { return "当前窗口已手动选择；微信主窗口内切换聊天后请重新选择" }
+        if model.current?.origin == .demo { return "示例记录仅用于体验" }
+        if model.current != nil { return "使用已导入的聊天记录" }
+        return "连接已就绪，请选择会话"
     }
     private var rangeControls: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -205,7 +219,7 @@ struct FloatView: View {
             Image(systemName: "text.bubble").font(.system(size: 32, weight: .light)).foregroundStyle(AppTheme.accent)
             Text(model.hasDatabaseConnection ? (model.groups.isEmpty ? "已连接，暂无会话" : "从一段聊天开始") : "一会儿没看，\n也能接上聊天。")
                 .font(.system(size: 23, weight: .medium)).lineSpacing(5)
-            Text(model.hasDatabaseConnection ? (model.groups.isEmpty ? "暂时没有读到可用会话。请确认微信已经同步记录，再到连接设置重新检测；也可以导入聊天文件。" : "选择一个群聊或联系人，看看发生了什么、有哪些结论和待办。") : "帮你整理群聊和私聊的重点。回答后可在「查看参考记录」中核对原消息。")
+            Text(model.hasDatabaseConnection ? (model.groups.isEmpty ? "暂时没有读到可用会话。请确认微信已经同步记录，再到连接设置重新检测；也可以导入聊天文件。" : "打开微信独立聊天窗口即可自动识别；无法识别时，在上方选择群聊或联系人。") : "帮你整理群聊和私聊的重点。回答后可在「查看参考记录」中核对原消息。")
                 .font(.callout).foregroundStyle(AppTheme.textSecondary).lineSpacing(4)
             if model.connecting || model.detecting {
                 HStack { ProgressView().controlSize(.small); Text("正在连接微信…").font(.callout) }
@@ -215,7 +229,9 @@ struct FloatView: View {
                     Button("导入记录", action: model.importFile)
                 }
             } else if model.hasDatabaseConnection {
-                Button("选择会话") { selectingConversation = true }.buttonStyle(PrimaryActionStyle())
+                if !model.needsConversationSelection {
+                    Button("选择会话") { selectingConversation = true }.buttonStyle(PrimaryActionStyle())
+                }
             } else {
                 Button("连接微信") { model.showConnection = true }.buttonStyle(PrimaryActionStyle())
             }
@@ -278,7 +294,7 @@ struct FloatView: View {
     }
     private var composerHint: String {
         if model.busy { return model.phase }
-        if model.autoFollow && !followingConfirmed && !model.groups.isEmpty { return "先确认当前会话，再提问" }
+        if (model.needsConversationSelection || confirmingWindow) && !model.groups.isEmpty { return "先确认当前会话，再提问" }
         if !model.canAsk { return model.hasDatabaseConnection ? "选择一个会话后即可提问" : "连接微信并选择会话，或导入记录" }
         return "仅发送所选会话与范围的记录"
     }
@@ -331,7 +347,7 @@ struct SettingsView: View {
                     SurfaceCard {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack { Label("微信连接", systemImage: "link").font(.headline); Spacer(); Button("管理连接") { model.showSettings = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { model.showConnection = true } } }
-                            Text("群聊和私聊都可使用。将聊天在微信中独立打开后，可按窗口标题自动跟随。主窗口内的会话请手动选择。")
+                            Text("群聊和私聊都可使用。微信独立聊天会自动识别，无法识别时可手动选择。主窗口内切换聊天后，请重新选择；识别到独立聊天时会自动跟随。")
                                 .font(.caption).foregroundStyle(AppTheme.textSecondary).lineSpacing(3)
                         }
                     }
@@ -455,7 +471,7 @@ struct ConnectionView: View {
                     SurfaceCard {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("自动跟随会话", systemImage: "rectangle.on.rectangle").font(.headline)
-                            Text("请用微信自身的功能将聊天在独立窗口中打开。伴读会按窗口标题跟随，群聊和私聊都支持。无法确认时，可在伴读中选择会话。")
+                            Text("将微信聊天在独立窗口中打开后，伴读会自动跟随，群聊和私聊都支持。无法识别时可手动选择；之后识别到独立聊天，会自动继续跟随。")
                                 .font(.callout).foregroundStyle(AppTheme.textSecondary).lineSpacing(3)
                             if !AXIsProcessTrusted() {
                                 Button("允许读取窗口标题", action: CurrentWeChat.requestPermission)

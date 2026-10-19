@@ -38,6 +38,8 @@ import SottoCore
         try loadSyntheticPreview(); question = "这是另一个会话的草稿。"
         selectGroup("preview-private")
         identity = "虚构预览 · 仅连接本机合成服务"
-        companionEnabled = true; autoFollow = false
+        companionEnabled = true
+        followForegroundIsRelevant = { true }
+        followAXReader = { _ in .init(group: nil, state: "unsupported", visited: 0, evidenceCount: 0, roleCounts: [:]) }
     }
 }

@@ -13,8 +13,9 @@ import SottoCore
     let b = DBGroup(id: "new-context-b", name: "合成会话 B", aliases: [])
     func requestModel() -> AppModel {
         let value = AppModel(testMode: true)
-        value.root = root; value.groups = [a, b]; value.selectGroup(a.id, automatic: true)
-        value.autoFollow = false
+        value.root = root; value.groups = [a, b]; value.selectGroup(a.id)
+        value.followForegroundIsRelevant = { true }
+        value.followAXReader = { _ in .init(group: nil, state: "unsupported", visited: 0, evidenceCount: 0, roleCounts: [:]) }
         value.config = ModelConfig(); value.config.endpoint = "https://synthetic.invalid/chat/completions"
         value.config.model = "synthetic-unused"; value.config.consentEndpoint = value.config.endpoint
         return value
@@ -37,11 +38,11 @@ import SottoCore
     try model.loadSyntheticPreview()
     model.question = "A 的旧草稿"
     let aTurn = model.turns.first?.id
-    model.selectGroup(b.id, automatic: true)
+    model.selectGroup(b.id)
     checks["uncached_conversation_starts_with_empty_input"] = model.question.isEmpty && model.turns.isEmpty && model.current == nil
     try model.loadSyntheticPreview(); model.question = "B 的独立草稿"
     let bTurn = model.turns.first?.id
-    model.selectGroup(a.id, automatic: true)
+    model.selectGroup(a.id)
     checks["conversation_drafts_exist_before_reset"] = model.turns.first?.id == aTurn && model.question == "A 的旧草稿"
     model.range = 0; model.start = Date(timeIntervalSince1970: 1_700_000_000)
     model.end = model.start.addingTimeInterval(1_800); model.includeUnknown = true
@@ -56,12 +57,12 @@ import SottoCore
         model.imageSummary.isEmpty &&
         model.error.isEmpty && !model.showSources && !model.canStartNewConversation
     checks["new_conversation_preserves_source_range_connection_and_model"] =
-        model.live && model.groupID == a.id && model.root == root && !model.autoFollow &&
+        model.live && model.groupID == a.id && model.root == root && model.hasManualConversationSelection &&
         model.range == 0 && model.start == start && model.end == end && model.includeUnknown &&
         model.config == config && model.hasDatabaseConnection && model.canAsk
-    model.selectGroup(b.id, automatic: true)
+    model.selectGroup(b.id)
     checks["clearing_a_preserves_b_answers_and_draft"] = model.turns.first?.id == bTurn && model.question == "B 的独立草稿"
-    model.selectGroup(a.id, automatic: true)
+    model.selectGroup(a.id)
     checks["returning_to_cleared_conversation_does_not_restore_old_draft_or_snapshot"] =
         model.question.isEmpty && model.turns.isEmpty && model.current == nil && model.frozenSnapshot == nil &&
         model.range == 0 && model.start == start && model.end == end
@@ -70,7 +71,7 @@ import SottoCore
     model.question = "导入前保留在数据库会话的草稿"
     model.select(imported)
     checks["import_selection_does_not_inherit_database_draft"] = model.question.isEmpty && model.current == imported && !model.live
-    model.selectGroup(a.id, automatic: true)
+    model.selectGroup(a.id)
     checks["return_from_import_restores_database_draft"] = model.question == "导入前保留在数据库会话的草稿" && model.groupID == a.id && model.live
     model.select(imported); model.question = "导入记录问题"
     model.startNewConversation()
@@ -132,6 +133,49 @@ import SottoCore
     try await waitUntil { !failed.busy }
     checks["late_failure_does_not_erase_newer_input"] = failed.question == "预检期间的新草稿" && !failed.error.isEmpty
 
+    // A fresh native identity must win even before the controller's next poll.
+    let windowA = WeChatWindow(id: 8_001, pid: 900_010, bounds: .init(x: 10, y: 10, width: 800, height: 600))
+    let windowB = WeChatWindow(id: 8_002, pid: windowA.pid, bounds: windowA.bounds)
+    let raced = requestModel()
+    raced.observeConversationWindow(windowA); raced.selectGroup(a.id)
+    raced.followWindowProvider = { windowB }
+    var racedReads = 0
+    raced.databaseConnectionSource.readMessages = { _, _, _ in racedReads += 1; throw ChatError.invalid("不应读取旧窗口") }
+    raced.question = "切窗后不能读取旧会话"; raced.ask()
+    try await waitUntil { !raced.busy }
+    checks["fresh_window_identity_blocks_old_manual_selection_before_database_read"] =
+        racedReads == 0 && raced.needsConversationSelection && !raced.hasManualConversationSelection &&
+        raced.question == "切窗后不能读取旧会话"
+
+    let recognized = requestModel()
+    recognized.followAXReader = { _ in .init(group: b, state: "confirmed", visited: 0, evidenceCount: 1, roleCounts: [:]) }
+    var recognizedReads = 0
+    recognized.databaseConnectionSource.readMessages = { _, _, _ in recognizedReads += 1; throw ChatError.invalid("不应读取旧会话") }
+    recognized.question = "识别出新会话时不要读取旧选择"; recognized.ask()
+    try await waitUntil { !recognized.busy }
+    checks["fresh_recognition_takes_over_before_reading_a_manual_fallback"] =
+        recognizedReads == 0 && recognized.groupID == b.id && recognized.isFollowingWindow
+    recognized.selectGroup(a.id)
+    checks["automatic_takeover_preserves_the_interrupted_question_in_its_conversation"] =
+        recognized.question == "识别出新会话时不要读取旧选择"
+
+    let inFlight = requestModel()
+    inFlight.observeConversationWindow(windowA); inFlight.selectGroup(a.id)
+    inFlight.followWindowProvider = { windowA }
+    var lateWindowRead: CheckedContinuation<DBRead, Error>?
+    inFlight.databaseConnectionSource.readMessages = { _, _, _ in
+        try await withCheckedThrowingContinuation { lateWindowRead = $0 }
+    }
+    inFlight.question = "切窗时保留这个问题"; inFlight.ask()
+    try await waitUntil { lateWindowRead != nil }
+    inFlight.observeConversationWindow(windowB)
+    lateWindowRead?.resume(returning: .init(account: DatabaseBridge.account(root), chat: a.id, name: a.name,
+        scannedShards: 1, omittedMedia: 0, completeLocalQuery: true, messages: []))
+    try await Task.sleep(for: .milliseconds(40))
+    checks["window_change_cancels_pending_read_and_preserves_question"] =
+        !inFlight.busy && inFlight.needsConversationSelection && inFlight.current == nil &&
+        inFlight.turns.isEmpty && inFlight.question == "切窗时保留这个问题" && inFlight.pendingQuestion.isEmpty
+
     // Selecting a saved import must adopt its own span, not the default recent window.
     let oldImport = try ChatImporter.parse(
         #"{"conversation":"旧导入","messages":[{"timestamp":"2020-01-01T00:00:00Z","sender":"甲","text":"旧消息"}]}"#,
@@ -154,9 +198,8 @@ import SottoCore
     let importedModel = AppModel(testMode: true)
     importedModel.groups = [a]
     importedModel.select(oldImport)
-    importedModel.autoFollow = true
-    importedModel.followChanged()
-    checks["imported_conversation_cannot_enable_follow"] =
-        !importedModel.live && !importedModel.autoFollow && importedModel.current?.id == oldImport.id
+    importedModel.pollIdentity()
+    checks["imported_conversation_does_not_start_window_follow"] =
+        !importedModel.live && !importedModel.isFollowingWindow && importedModel.current?.id == oldImport.id
     return checks
 }

@@ -6,7 +6,6 @@ import SottoCore
     func runExperienceChecks(output: URL) {
         Task {
             var checks: [String: Bool] = [:]
-            let savedPreferences = ["selectedDatabaseGroupV3", "followCurrentConversationV4"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
             do {
                 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
                 checks.merge(try await connectionModelChecks()) { _, new in new }
@@ -48,19 +47,19 @@ import SottoCore
                 for _ in 0..<200 { if !model.busy { break }; try await Task.sleep(for: .milliseconds(30)) }
                 checks["disconnect_preserves_partial"] = !model.busy && !model.error.isEmpty && model.turns.count == 2
                 checks["failure_restores_submitted_input"] = model.question == "合成断流测试"
-                model.autoFollow = true
                 let candidate = model.groups.first!
                 let previousID = model.groupID
                 let previousTurns = model.turns.map(\.id)
+                model.applyFollowDetection(.init(group: model.selectedGroup, state: "confirmed", visited: 0, evidenceCount: 1, roleCounts: [:]))
                 model.applyFollowDetection(.init(group: nil, state: "ambiguous", visited: 0, evidenceCount: 2, roleCounts: [:]))
                 checks["ambiguous_window_cannot_bind_or_send"] = model.groupID == previousID && !model.canAsk
                 checks["identity_gap_preserves_visible_answer"] = model.turns.map(\.id) == previousTurns
                 model.applyFollowDetection(.init(group: nil, state: "unsupportedWindow", visited: 0, evidenceCount: 0, roleCounts: [:]))
                 checks["unsupported_window_blocks_send_and_preserves_conversation"] = !model.canAsk && model.groupID == previousID && model.turns.map(\.id) == previousTurns
                 model.applyFollowDetection(.init(group: candidate, state: "confirmed", visited: 0, evidenceCount: 1, roleCounts: [:]))
-                checks["exact_native_window_title_follows_automatically"] = model.autoFollow && model.groupID == candidate.id && model.canAsk
+                checks["exact_native_window_title_follows_automatically"] = model.isFollowingWindow && model.groupID == candidate.id && model.canAsk
                 model.selectGroup(candidate.id)
-                checks["explicit_selection_fixes_conversation"] = !model.autoFollow && model.groupID == candidate.id
+                checks["explicit_selection_is_window_fallback"] = model.hasManualConversationSelection && model.groupID == candidate.id
                 model.config.model = "synthetic-stream"
                 model.question = "生成中开始新对话"; model.ask()
                 for _ in 0..<100 { if !model.streamingText.isEmpty { break }; try await Task.sleep(for: .milliseconds(30)) }
@@ -83,7 +82,6 @@ import SottoCore
             let passed = !checks.isEmpty && checks.values.allSatisfy { $0 }
             let report: [String: Any] = ["checks": checks, "passed": passed, "syntheticOnly": true, "realChatRead": false, "remoteRequests": 0]
             if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: output.appendingPathComponent("experience-checks.json")) }
-            for (key, value) in savedPreferences { if let value { UserDefaults.standard.set(value, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
             exit(passed ? 0 : 2)
         }
     }

@@ -18,7 +18,13 @@ struct AnswerTurn: Identifiable {
     @Published var groups: [DBGroup] = []
     @Published var groupID = ""
     @Published var root = UserDefaults.standard.string(forKey: "databaseRoot") ?? ""
-    @Published var autoFollow = (UserDefaults.standard.object(forKey: "followCurrentConversationV4") as? Bool) ?? true
+    private enum ConversationSelection { case unresolved, automatic, manual }
+    @Published private var conversationSelection = ConversationSelection.unresolved
+    private struct ConversationWindowIdentity: Equatable {
+        let pid: pid_t
+        let windowID: CGWindowID
+    }
+    private var conversationWindow: ConversationWindowIdentity?
     @Published var companionEnabled = true {
         didSet { if !isDevelopmentMode && !companionEnabled { companionEnabled = true } }
     }
@@ -27,6 +33,9 @@ struct AnswerTurn: Identifiable {
     var isStandaloneConversationVisible: () -> Bool = { false }
     var followForegroundIsRelevant: () -> Bool = { WeChatWindow.isRelevantForeground }
     var followAXReader: ([DBGroup]) -> CurrentWeChat.Detection = { CurrentWeChat.detect(from: $0) }
+    // The companion supplies its own qualified provider, preserving the same
+    // native target continuity when keyboard focus belongs to our panel.
+    var followWindowProvider: (() -> WeChatWindow?)?
     @Published var streamingText = ""
     @Published var streamingRevision = 0
     @Published var pendingQuestion = ""
@@ -95,7 +104,7 @@ struct AnswerTurn: Identifiable {
         isDevelopmentMode = testMode
         connectionRecoveryEnabled = !testMode
         if let data = UserDefaults.standard.data(forKey: "modelConfig"), let value = try? JSONDecoder().decode(ModelConfig.self, from: data) { config = value }
-        if testMode { root = ""; autoFollow = false; companionEnabled = false; if CommandLine.arguments.contains("--ui-test") { config = ModelConfig(); root = "" } }
+        if testMode { root = ""; companionEnabled = false; if CommandLine.arguments.contains("--ui-test") { config = ModelConfig(); root = "" } }
         if !testMode {
             do { local = try LocalStore(); sessions = try local?.load().filter { $0.origin == .imported } ?? [] }
             catch { self.error = "本地导入缓存读取失败，可在设置中清理后重试。" }
@@ -117,7 +126,13 @@ struct AnswerTurn: Identifiable {
     var hasDatabaseConnection: Bool { !root.isEmpty && connectedDatabaseRoot == root && !messageQueryNeedsVerification }
     var frozenSnapshot: Snapshot? { frozen }
     var displayedMessages: [ChatMessage] { frozen?.messages ?? current?.messages ?? [] }
-    var canAsk: Bool { !busy && (!live ? current != nil : selectedGroup != nil && (!autoFollow || followState == "confirmed")) }
+    var isFollowingWindow: Bool { live && conversationSelection == .automatic }
+    var hasManualConversationSelection: Bool { live && conversationSelection == .manual && selectedGroup != nil }
+    var needsConversationSelection: Bool { live && (conversationSelection == .unresolved || selectedGroup == nil) }
+    var canAsk: Bool {
+        !busy && (!live ? current != nil : selectedGroup != nil &&
+            (hasManualConversationSelection || (isFollowingWindow && followState == "confirmed")))
+    }
     var canStartNewConversation: Bool {
         busy || !question.isEmpty || !turns.isEmpty || !streamingText.isEmpty || !pendingQuestion.isEmpty ||
             frozen != nil || (live && current != nil) ||
@@ -132,9 +147,9 @@ struct AnswerTurn: Identifiable {
     }
     func select(_ session: ChatSession) {
         guard isDevelopmentMode || session.origin != .demo else { return }
-        stashConversation(); invalidate(); question = ""; live = false; autoFollow = false; groupID = ""; current = session
+        identityGeneration = UUID(); identityTask?.cancel(); identityTask = nil
+        stashConversation(); invalidate(); question = ""; live = false; conversationSelection = .unresolved; groupID = ""; current = session
         applySessionRange(session)
-        if !isDevelopmentMode { UserDefaults.standard.set(false, forKey: "followCurrentConversationV4") }
         fence.select(session.id); identity = session.origin == .demo ? "演示模式 · 全部为虚构消息" : "导入记录 · 独立会话"
     }
     /// A saved/imported session carries its own time span. Reset the picker to
@@ -169,6 +184,9 @@ struct AnswerTurn: Identifiable {
         drafts[draftKey(groupID)] = ConversationDraft(current: current, frozen: frozen, turns: turns, question: draftQuestion, range: range, start: start, end: end, images: frozenImages, imageConfig: imageConfig, imageSummary: imageSummary)
     }
     func selectGroup(_ id: String, automatic: Bool = false) {
+        if !automatic {
+            identityGeneration = UUID(); identityTask?.cancel(); identityTask = nil
+        }
         error = ""
         if groupID != id { stashConversation(); invalidate(); current = nil; question = ""; groupID = id
             if let saved = drafts[draftKey(id)] {
@@ -178,8 +196,28 @@ struct AnswerTurn: Identifiable {
             }
         }
         live = true
-        if !automatic { autoFollow = false; UserDefaults.standard.set(false, forKey: "followCurrentConversationV4"); UserDefaults.standard.set(id, forKey: "selectedDatabaseGroupV3") }
-        identity = id.isEmpty ? "尚未确认当前会话" : (autoFollow ? "跟随微信当前会话" : "已固定此会话")
+        conversationSelection = selectedGroup == nil ? .unresolved : (automatic ? .automatic : .manual)
+        identity = selectedGroup == nil ? "请选择当前会话" : (automatic ? "跟随微信当前会话" : "当前窗口已手动选择会话")
+    }
+    /// A manual fallback belongs to one native window, never to every future chat.
+    func observeConversationWindow(_ target: WeChatWindow) {
+        let observed = ConversationWindowIdentity(pid: target.pid, windowID: target.id)
+        guard conversationWindow != observed else { return }
+        conversationWindow = observed
+        identityGeneration = UUID(); identityTask?.cancel(); identityTask = nil
+        guard live else { return }
+        if busy && question.isEmpty { question = pendingInput }
+        stashConversation(); invalidate(clear: false)
+        streamingText = ""; streamingSnapshot = nil; pendingQuestion = ""; pendingInput = ""
+        conversationSelection = .unresolved
+        followState = "checking"; followMessage = ""
+        identity = "正在识别当前微信会话…"
+    }
+    func refreshConversationIdentity() {
+        if live && !hasManualConversationSelection {
+            followState = "checking"; identity = "正在识别当前微信会话…"
+        }
+        pollIdentity()
     }
     func inspectFollow() async -> CurrentWeChat.Detection {
         let detected = await resolveFollow()
@@ -190,49 +228,61 @@ struct AnswerTurn: Identifiable {
     private func resolveFollow() async -> CurrentWeChat.Detection {
         followAXReader(groups)
     }
-    private func verifiedCurrentID() async -> String? {
-        guard followForegroundIsRelevant() else { return nil }
-        let result = await resolveFollow()
-        return result.state == "confirmed" ? result.group?.id : nil
+    private func refreshObservedConversationWindow() -> Bool {
+        guard let provider = followWindowProvider else { return true }
+        guard let target = provider() else {
+            conversationSelection = .unresolved
+            followState = "noWindow"; identity = "无法确认当前微信窗口，请重新选择会话"
+            return false
+        }
+        observeConversationWindow(target)
+        return true
+    }
+    private func requestConversationIsCurrent(_ id: String, window: ConversationWindowIdentity?) async -> Bool {
+        guard followForegroundIsRelevant(), refreshObservedConversationWindow(),
+              live, groupID == id, conversationWindow == window else { return false }
+        let detected = await resolveFollow()
+        guard refreshObservedConversationWindow(), live, groupID == id, conversationWindow == window else { return false }
+        if detected.state == "confirmed" {
+            // Even a manual request must not read its old selection after the
+            // window starts exposing a different, verifiable conversation.
+            applyFollowDetection(detected)
+            return detected.group?.id == id && groupID == id
+        }
+        applyFollowDetection(detected)
+        if ["notRunning", "noWindow", "unsupportedWindow"].contains(detected.state) {
+            return false
+        }
+        return hasManualConversationSelection
     }
     func applyFollowDetection(_ detected: CurrentWeChat.Detection) {
+        guard live else { return }
         followState = detected.state; followMessage = detected.message
         followVisited = detected.visited; followEvidence = detected.evidenceCount; followRoleCounts = detected.roleCounts
         let id = detected.state == "confirmed" ? detected.group?.id : nil
-        // Keep the previous answer visible while identity is temporarily unavailable.
-        // canAsk blocks sending until current identity is confirmed again.
-        if let id, id != groupID { selectGroup(id, automatic: true) }
-        identity = detected.message
+        // Recognition always takes over, including after a manual fallback.
+        // Unknown titles keep an explicit choice only within the same window.
+        if let id, groups.contains(where: { $0.id == id }) {
+            if id != groupID { selectGroup(id, automatic: true) }
+            else { conversationSelection = .automatic }
+        } else if !hasManualConversationSelection || ["notRunning", "noWindow", "unsupportedWindow"].contains(detected.state) {
+            conversationSelection = .unresolved
+        }
+        identity = hasManualConversationSelection ? "当前窗口已手动选择会话" : detected.message
     }
     func pollIdentity() {
-        guard live, autoFollow, !groups.isEmpty, identityTask == nil, followForegroundIsRelevant() else { return }
+        guard live, !groups.isEmpty, identityTask == nil, followForegroundIsRelevant() else { return }
         if companionEnabled && !companionExpanded && !(isDevelopmentMode && isStandaloneConversationVisible()) { return }
+        guard refreshObservedConversationWindow() else { return }
         let expectedRoot = root; let generation = identityGeneration
         identityTask = Task { [weak self] in
             guard let self else { return }
             defer { if identityGeneration == generation { identityTask = nil } }
             let detected = await resolveFollow()
-            guard !Task.isCancelled, live, autoFollow, root == expectedRoot, generation == identityGeneration else { return }
+            guard refreshObservedConversationWindow() else { return }
+            guard !Task.isCancelled, live, root == expectedRoot, generation == identityGeneration else { return }
             applyFollowDetection(detected)
         }
-    }
-    func followChanged() {
-        // Imported records use their own frozen time span and are not tied to a
-        // WeChat window. Enabling follow must never silently switch the source
-        // to a database conversation and discard the imported answers.
-        if !live || (current != nil && current?.origin != .database) {
-            autoFollow = false
-            followState = "not_checked"; followMessage = ""
-            if !isDevelopmentMode { UserDefaults.standard.set(false, forKey: "followCurrentConversationV4") }
-            identity = "导入记录不支持自动跟随 · 请选择数据库会话"
-            writeConnectionStatus()
-            return
-        }
-        UserDefaults.standard.set(autoFollow, forKey: "followCurrentConversationV4")
-        identityGeneration = UUID(); identityTask?.cancel(); identityTask = nil
-        if autoFollow { live = true; followState = "checking"; identity = "正在核对微信当前会话…"; pollIdentity() }
-        else { identity = "已固定此会话" }
-        writeConnectionStatus()
     }
     func window() throws -> TimeWindow {
         let now = Date()
@@ -273,6 +323,7 @@ struct AnswerTurn: Identifiable {
         let op = UUID(); operation = op
         let requestConfig = config
         let expectedGroup = groupID; let expectedLive = live; let imported = current
+        let expectedWindow = conversationWindow
         task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -280,8 +331,8 @@ struct AnswerTurn: Identifiable {
                 guard requestConfig.consentEndpoint == requestConfig.endpoint else { throw ChatError.invalid("请先在模型设置中允许发送当前快照。") }
                 guard self.operation == op else { return }
                 if self.question == submittedQuestion { self.question = "" }
-                if expectedLive && self.autoFollow {
-                    guard await self.verifiedCurrentID() == expectedGroup else { throw ChatError.invalid("微信当前会话无法确认或已经改变，请重新绑定。") }
+                if expectedLive {
+                    guard await self.requestConversationIsCurrent(expectedGroup, window: expectedWindow) else { throw ChatError.invalid("当前微信会话已改变或尚未选择，请确认会话后重试。") }
                 }
                 let snapshot: Snapshot
                 if let frozen = self.frozen { snapshot = frozen }
@@ -301,8 +352,8 @@ struct AnswerTurn: Identifiable {
                 }
                 try Task.checkCancellation()
                 guard self.operation == op else { return }
-                if expectedLive && self.autoFollow {
-                    guard await self.verifiedCurrentID() == expectedGroup else { throw ChatError.invalid("读取期间微信切换了会话，已丢弃这次结果。") }
+                if expectedLive {
+                    guard await self.requestConversationIsCurrent(expectedGroup, window: expectedWindow) else { throw ChatError.invalid("读取期间微信切换了会话，已丢弃这次结果。") }
                 }
                 try Task.checkCancellation()
                 guard self.operation == op else { return }
@@ -327,8 +378,8 @@ struct AnswerTurn: Identifiable {
                 guard self.fence.accepts(token: token, sessionID: snapshot.sessionID) else {
                     self.discardStaleCompletion(operation: op); return
                 }
-                if expectedLive && self.autoFollow && WeChatWindow.isRelevantForeground {
-                    guard await self.verifiedCurrentID() == expectedGroup else { throw ChatError.invalid("回答完成时当前会话已改变或无法确认，已丢弃回答。") }
+                if expectedLive && self.followForegroundIsRelevant() {
+                    guard await self.requestConversationIsCurrent(expectedGroup, window: expectedWindow) else { throw ChatError.invalid("回答完成时当前会话已改变或无法确认，已丢弃回答。") }
                 }
                 try Task.checkCancellation()
                 guard self.operation == op else { return }
@@ -460,13 +511,13 @@ struct AnswerTurn: Identifiable {
     func selectDatabaseRoot(_ selectedRoot: String) {
         guard root != selectedRoot else { return }
         stashConversation(); invalidate(); groups = []; groupID = ""; current = nil; live = false
+        conversationSelection = .unresolved; conversationWindow = nil
         drafts.removeAll()
         identityGeneration = UUID(); identityTask?.cancel(); identityTask = nil
         connectionGeneration = UUID(); connectionTask?.cancel(); connectionTask = nil; connecting = false
         connectedDatabaseRoot = nil; messageQueryNeedsVerification = false; connectionRecovery = ConnectionRecovery()
         databaseKeyCount = 0; credentialState = "not_checked"
         root = selectedRoot; UserDefaults.standard.set(root, forKey: "databaseRoot")
-        UserDefaults.standard.removeObject(forKey: "selectedDatabaseGroupV3")
     }
 
     func resumeAutomaticConnection() {
@@ -512,7 +563,7 @@ struct AnswerTurn: Identifiable {
             "connectionAttemptCount": connectionRecovery.attemptCount, "connectionRetryScheduled": connectionRecovery.nextAttemptAt != nil,
             "accessibilityGranted": CurrentWeChat.trusted, "modelConfigured": !config.endpoint.isEmpty && !config.model.isEmpty,
             "followState": followState, "followNodesVisited": followVisited, "followEvidenceCount": followEvidence,
-            "followRoleCounts": followRoleCounts, "autoFollow": autoFollow, "groupSelected": !groupID.isEmpty, "groundingState": groundingState,
+            "followRoleCounts": followRoleCounts, "followingWindow": isFollowingWindow, "manualConversationSelection": hasManualConversationSelection, "needsConversationSelection": needsConversationSelection, "groupSelected": !groupID.isEmpty, "groundingState": groundingState,
             "companionEnabled": companionEnabled, "supportsVision": config.supportsVision, "contextTokens": config.contextTokens, "credentialFiles": CredentialStore.diagnosticCounts, "answerTurnCount": turns.count, "initializing": initializing, "userAction": action, "checkedAt": Display.iso(Date())]
         let target = local.directory.appendingPathComponent("connection-status.json")
         do {
@@ -576,10 +627,9 @@ struct AnswerTurn: Identifiable {
                 }
                 live = true
                 if !groupID.isEmpty, groups.contains(where: { $0.id == groupID }) { return }
-                if !groupID.isEmpty { selectGroup("", automatic: autoFollow) }
-                identity = "数据库已连接 · 请选择会话或启用跟随"
-                if autoFollow { pollIdentity() }
-                else if let saved = UserDefaults.standard.string(forKey: "selectedDatabaseGroupV3"), groups.contains(where: { $0.id == saved }) { selectGroup(saved) }
+                if !groupID.isEmpty { selectGroup("", automatic: true) }
+                identity = "数据库已连接 · 正在识别会话，无法识别时请选择"
+                pollIdentity()
             } catch {
                 guard root == selectedRoot, connectionGeneration == generation, !Task.isCancelled else { return }
                 connectedDatabaseRoot = nil; connectionRecovery.failed()

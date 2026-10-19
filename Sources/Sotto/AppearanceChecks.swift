@@ -9,7 +9,6 @@ import SottoCore
         var checks: [String: Bool] = [:]
         let suite = "moe.tachyon.sotto.AppearanceCheck." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
-        let savedPreferences = ["selectedDatabaseGroupV3", "followCurrentConversationV4"].map { ($0, UserDefaults.standard.object(forKey: $0)) }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             panel.orderOut(nil)
@@ -73,7 +72,6 @@ import SottoCore
         let report: [String: Any] = ["checks": checks, "passed": passed, "syntheticOnly": true, "realChatRead": false, "remoteRequests": 0]
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: directory.appendingPathComponent("appearance-checks.json")) }
         defaults.removePersistentDomain(forName: suite)
-        for (key, value) in savedPreferences { if let value { UserDefaults.standard.set(value, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
         exit(passed ? 0 : 2)
     }
 }

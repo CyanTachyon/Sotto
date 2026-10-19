@@ -27,11 +27,11 @@ import SottoCore
             case "notRunning": return "微信未运行，当前会话读取已暂停"
             case "noWindow": return "没有可确认的微信当前窗口，请在微信打开目标会话"
             case "unsupportedWindow": return "当前窗口未确认为聊天窗口，已暂停跟随；请返回微信聊天窗口"
-            case "ambiguous": return "存在同名会话，无法唯一确认；请明确选择固定会话"
+            case "ambiguous": return "存在同名会话，无法唯一确认；请选择当前会话"
             case "conflicting": return "微信标题与选中会话尚不一致，已暂停等待切换完成"
             case "incomplete": return "微信会话信息暂未读取完整，已暂停等待下一次确认"
             case "unmatched": return "当前会话未匹配到已连接的会话；数据库可能尚未同步"
-            default: return "微信未提供可确认的会话元数据；可先选择固定会话"
+            default: return "微信未提供可确认的会话元数据；请选择当前会话"
             }
         }
     }

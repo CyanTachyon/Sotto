@@ -97,6 +97,7 @@ private struct CompanionBubble: View {
         panel = CompanionPanel(contentRect: .init(x: 0, y: 0, width: 420, height: 640), styleMask: [.borderless, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
         bubble = NSPanel(contentRect: .init(x: 0, y: 0, width: 48, height: 48), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
+        model.followWindowProvider = { [weak self] in self?.targetProvider() }
         for window in [panel, bubble] {
             window.level = .floating
             // One instance in the current Space: all-Spaces windows are duplicated by the
@@ -148,6 +149,7 @@ private struct CompanionBubble: View {
     }
     @discardableResult func present() -> Bool {
         guard model.companionEnabled, relevantForeground(), now() >= spaceSettlesAt, let target = targetProvider() else { return false }
+        model.observeConversationWindow(target)
         collapseForDifferentTarget(target)
         guard position(target) else { return false }
         if fixtureWindow?.isVisible == true { fixtureWindow?.orderOut(nil) }
@@ -159,8 +161,7 @@ private struct CompanionBubble: View {
         model.resumeAutomaticConnection()
         display(.panel, takeFocus: true)
         if observeFocus, panel.isKeyWindow { blurArmed = true }
-        if model.autoFollow { model.followState = "checking"; model.identity = "正在确认微信当前会话…" }
-        model.pollIdentity()
+        model.refreshConversationIdentity()
         return true
     }
     func hide() {
@@ -206,6 +207,7 @@ private struct CompanionBubble: View {
         }
         // Hide the old panel before position() can move it. Geometry changes on
         // the same native window do not change the user's expansion choice.
+        model.observeConversationWindow(target)
         collapseForDifferentTarget(target)
         let instant = now()
         if candidate?.id != target.id || candidate?.pid != target.pid || (presentation == .hidden && candidate?.bounds != target.bounds) {
