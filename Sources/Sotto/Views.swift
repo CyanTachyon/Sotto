@@ -551,7 +551,7 @@ struct ConnectionView: View {
             Text("仅在没有可用密钥时需要。已有连接无需重复进行。")
                 .font(.callout.weight(.medium)).foregroundStyle(AppTheme.warning)
             Text("先由你在微信菜单正常退出。会创建、重新签名并启动一个临时微信副本，读取并验证你所选账号的数据库密钥。验证通过的密钥保存在这台 Mac 的本地文件中。")
-            Text("原版微信与 SIP 保持不变。副本仍会访问本人账号资料，可能需要手机确认或重新登录，微信自身可能更新缓存或登录状态。此路线在本机 macOS 27 尚未实账号验证；调试许可不通过会失败，不自动降低系统安全设置。")
+            Text("原版微信与 SIP 保持不变。副本仍会访问本人账号资料，可能需要手机确认或重新登录，微信自身可能更新缓存或登录状态。此路线尚未实账号验证；调试许可不通过会失败，不自动降低系统安全设置。")
                 .font(.caption).foregroundStyle(AppTheme.textSecondary)
             Toggle("我已正常退出微信，并同意本次创建、重签和启动临时副本取钥", isOn: $acknowledge)
             Button(model.initializing ? "正在初始化，请在临时微信完成本人登录…" : "开始一次性初始化", action: model.initializeKeys)

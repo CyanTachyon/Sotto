@@ -3,10 +3,16 @@ set -euo pipefail
 SOURCE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DELIVERY_ROOT="$SOURCE_ROOT/artifacts"
 OUTPUT_APP="${SOTTO_APP_OUTPUT:-$DELIVERY_ROOT/Sotto.app}"
+export MACOSX_DEPLOYMENT_TARGET=26.0
+export SDKROOT="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
+export SOTTO_DEPENDENCY_ROOT="${SOTTO_DEPENDENCY_ROOT:-$SOURCE_ROOT/.build/macos26-dependencies}"
+BUILD_DIR="$SOURCE_ROOT/.build/macos26"
 python3 "$SOURCE_ROOT/scripts/local-signing.py" preflight
-# Native SwiftPM works with this CLT-only installation. Explicit UIState typealias avoids SDK27 macro packaging bug.
-swift build --build-system native -c release --package-path "$SOURCE_ROOT" --product Sotto
-BINARY_DIR="$(swift build --build-system native -c release --package-path "$SOURCE_ROOT" --show-bin-path)"
+# Build bundled libraries for the same minimum OS instead of copying bottles
+# whose deployment target follows the build machine's current macOS version.
+bash "$SOURCE_ROOT/scripts/build-dependencies.sh"
+swift build --build-system native -c release --package-path "$SOURCE_ROOT" --scratch-path "$BUILD_DIR" --sdk "$SDKROOT" --triple arm64-apple-macosx26.0 --product Sotto
+BINARY_DIR="$(swift build --build-system native -c release --package-path "$SOURCE_ROOT" --scratch-path "$BUILD_DIR" --sdk "$SDKROOT" --triple arm64-apple-macosx26.0 --show-bin-path)"
 mkdir -p "$(dirname "$OUTPUT_APP")"
 STAGING_ROOT="$(mktemp -d "$(dirname "$OUTPUT_APP")/.sotto-build.XXXXXX")"
 BACKUP_APP=""
@@ -33,15 +39,26 @@ cp "$BINARY_DIR/Sotto" "$APP/Contents/MacOS/Sotto"
 for name in bootstrap.py capture_keys.py reader.py sqlcipher_probe.py media.py; do cp "$SOURCE_ROOT/Backend/$name" "$APP/Contents/Resources/Backend/$name"; done
 cp "$SOURCE_ROOT/ThirdParty/"*.txt "$SOURCE_ROOT/ThirdParty/"*.md "$APP/Contents/Resources/ThirdParty/"
 cp "$SOURCE_ROOT/LICENSE" "$SOURCE_ROOT/NOTICE" "$APP/Contents/Resources/"
-SQLCIPHER_PREFIX="$(brew --prefix sqlcipher)"
-ZSTD_PREFIX="$(brew --prefix zstd)"
-CRYPTO_PREFIX="$(brew --prefix openssl@4)"
+SQLCIPHER_PREFIX="$SOTTO_DEPENDENCY_ROOT/prefix/sqlcipher"
+ZSTD_PREFIX="$SOTTO_DEPENDENCY_ROOT/prefix/zstd"
+CRYPTO_PREFIX="$SOTTO_DEPENDENCY_ROOT/prefix/openssl@4"
 cp -L "$SQLCIPHER_PREFIX/lib/libsqlcipher.dylib" "$APP/Contents/Resources/Frameworks/libsqlcipher.dylib"
 cp -L "$ZSTD_PREFIX/lib/libzstd.dylib" "$APP/Contents/Resources/Frameworks/libzstd.dylib"
 cp -L "$CRYPTO_PREFIX/lib/libcrypto.4.dylib" "$APP/Contents/Resources/Frameworks/libcrypto.4.dylib"
 chmod u+w "$APP/Contents/Resources/Frameworks/"*.dylib
 install_name_tool -id '@loader_path/libsqlcipher.dylib' "$APP/Contents/Resources/Frameworks/libsqlcipher.dylib"
-install_name_tool -change "$CRYPTO_PREFIX/lib/libcrypto.4.dylib" '@loader_path/libcrypto.4.dylib' "$APP/Contents/Resources/Frameworks/libsqlcipher.dylib"
+python3 - "$APP/Contents/Resources/Frameworks/libsqlcipher.dylib" <<'PY'
+import re, subprocess, sys
+library = sys.argv[1]
+linked = subprocess.check_output(["otool", "-L", library], text=True)
+crypto = [match[1] for line in linked.splitlines()
+          if (match := re.match(r"\s+(.+) \(compatibility version", line))
+          and match[1].endswith("/libcrypto.4.dylib")]
+if len(crypto) != 1:
+    raise SystemExit("Expected exactly one libcrypto.4 dependency in SQLCipher")
+subprocess.run(["install_name_tool", "-change", crypto[0],
+                "@loader_path/libcrypto.4.dylib", library], check=True)
+PY
 install_name_tool -id '@loader_path/libzstd.dylib' "$APP/Contents/Resources/Frameworks/libzstd.dylib"
 install_name_tool -id '@loader_path/libcrypto.4.dylib' "$APP/Contents/Resources/Frameworks/libcrypto.4.dylib"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -54,11 +71,11 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>Sotto</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-<key>CFBundleShortVersionString</key><string>0.0.1</string>
-<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleShortVersionString</key><string>0.0.2</string>
+<key>CFBundleVersion</key><string>5</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
-<key>LSMinimumSystemVersion</key><string>27.0</string>
+<key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
 <key>LSMultipleInstancesProhibited</key><true/>
 <key>LSUIElement</key><true/>
@@ -68,6 +85,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
+python3 "$SOURCE_ROOT/scripts/check-compatibility.py" "$APP"
 python3 "$SOURCE_ROOT/scripts/local-signing.py" sign-app "$APP"
 # Keep the previous output intact until the entire candidate has been signed
 # and verified. A failed replacement keeps its recoverable backup beside it.
