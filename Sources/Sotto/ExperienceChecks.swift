@@ -13,6 +13,7 @@ import SottoCore
                 checks.merge(try await chatConversationChecks()) { _, new in new }
                 checks.merge(try await composerChecks()) { _, new in new }
                 checks.merge(try await editMenuChecks()) { _, new in new }
+                checks.merge(try updateModelChecks()) { _, new in new }
                 try model.loadExperiencePreview(); model.companionEnabled = false
                 model.question = "完整的合成流式回答"; model.ask()
                 var seen = Set<Int>(), samples = 0

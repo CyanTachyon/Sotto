@@ -5,6 +5,7 @@ import AppKit
         let main = NSMenu()
         let app = NSMenu(title: "Sotto")
         app.addItem(withTitle: "关于 Sotto", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "检查更新…", action: #selector(AppDelegate.checkForUpdates), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "外观与设置…", action: #selector(AppDelegate.settings), keyEquivalent: ",")
         app.addItem(.separator())

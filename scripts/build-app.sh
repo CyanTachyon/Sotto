@@ -36,6 +36,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Backend" "$APP/Contents/
 if [ ! -f "$SOURCE_ROOT/Resources/AppIcon.icns" ]; then python3 "$SOURCE_ROOT/scripts/make-icon.py"; fi
 cp "$SOURCE_ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$BINARY_DIR/Sotto" "$APP/Contents/MacOS/Sotto"
+python3 "$SOURCE_ROOT/scripts/embed-sparkle.py" "$BUILD_DIR/artifacts" "$APP"
 for name in bootstrap.py capture_keys.py reader.py sqlcipher_probe.py media.py; do cp "$SOURCE_ROOT/Backend/$name" "$APP/Contents/Resources/Backend/$name"; done
 cp "$SOURCE_ROOT/ThirdParty/"*.txt "$SOURCE_ROOT/ThirdParty/"*.md "$APP/Contents/Resources/ThirdParty/"
 cp "$SOURCE_ROOT/LICENSE" "$SOURCE_ROOT/NOTICE" "$APP/Contents/Resources/"
@@ -61,6 +62,20 @@ subprocess.run(["install_name_tool", "-change", crypto[0],
 PY
 install_name_tool -id '@loader_path/libzstd.dylib' "$APP/Contents/Resources/Frameworks/libzstd.dylib"
 install_name_tool -id '@loader_path/libcrypto.4.dylib' "$APP/Contents/Resources/Frameworks/libcrypto.4.dylib"
+# These libraries now use only explicit system/@loader_path dependencies.
+# Drop build-prefix search paths so no packaged image searches outside the app.
+python3 - "$APP/Contents/Resources/Frameworks" <<'PYRPATH'
+import pathlib, re, subprocess, sys
+for library in sorted(pathlib.Path(sys.argv[1]).glob("*.dylib")):
+    commands = subprocess.check_output(["otool", "-l", str(library)], text=True)
+    for block in re.split(r"(?m)^Load command \d+\s*$", commands)[1:]:
+        if not re.search(r"(?m)^\s*cmd LC_RPATH\s*$", block):
+            continue
+        match = re.search(r"(?m)^\s*path (.+) \(offset \d+\)\s*$", block)
+        if not match:
+            raise SystemExit("Could not inspect library runpath")
+        subprocess.run(["install_name_tool", "-delete_rpath", match[1], str(library)], check=True)
+PYRPATH
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -71,8 +86,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>Sotto</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-<key>CFBundleShortVersionString</key><string>0.0.3</string>
-<key>CFBundleVersion</key><string>6</string>
+<key>CFBundleShortVersionString</key><string>0.0.4</string>
+<key>CFBundleVersion</key><string>7</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
@@ -85,6 +100,24 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
+python3 - "$APP/Contents/Info.plist" "$SOURCE_ROOT/Resources/UpdatePublicKey.txt" <<'PYKEY'
+import base64, pathlib, plistlib, sys
+key = pathlib.Path(sys.argv[2]).read_text(encoding="ascii").strip()
+try:
+    decoded = base64.b64decode(key, validate=True)
+except ValueError:
+    raise SystemExit("UpdatePublicKey.txt must contain a valid Ed25519 public key")
+if len(decoded) != 32 or base64.b64encode(decoded).decode("ascii") != key:
+    raise SystemExit("UpdatePublicKey.txt must contain one canonical 32-byte Ed25519 public key")
+path = pathlib.Path(sys.argv[1])
+info = plistlib.loads(path.read_bytes())
+info.update(SUPublicEDKey=key,
+            SUFeedURL="https://github.com/CyanTachyon/Sotto/releases/latest/download/appcast.xml",
+            SUEnableAutomaticChecks=False, SUAutomaticallyUpdate=False, SUAllowsAutomaticUpdates=False,
+            SUSendProfileInfo=False,
+            SUVerifyUpdateBeforeExtraction=True, SURequireSignedFeed=True)
+path.write_bytes(plistlib.dumps(info))
+PYKEY
 python3 "$SOURCE_ROOT/scripts/check-compatibility.py" "$APP"
 python3 "$SOURCE_ROOT/scripts/local-signing.py" sign-app "$APP"
 # Keep the previous output intact until the entire candidate has been signed

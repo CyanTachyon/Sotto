@@ -20,6 +20,7 @@ import tempfile
 
 STATE = Path.home() / "Library/Application Support/moe.tachyon.sotto.build-signing"
 APP_ID = "moe.tachyon.sotto"
+RELEASE_CERTIFICATE_SHA1 = "36CA80627CE19546D866DE637673619BA089A25D"
 CERT_NAME = "Sotto Local Release Signing"
 KEYCHAIN_FILE = "signing.keychain-db"
 
@@ -207,7 +208,8 @@ def metadata():
         protected(STATE / name)
     value = json.loads((STATE / "identity.json").read_text())
     fingerprint = hashlib.sha1((STATE / "certificate.der").read_bytes()).hexdigest().upper()
-    if value.get("certificateSHA1") != fingerprint or value.get("bundleIdentifier") != APP_ID:
+    if (value.get("certificateSHA1") != fingerprint or fingerprint != RELEASE_CERTIFICATE_SHA1
+            or value.get("bundleIdentifier") != APP_ID):
         raise SigningError("Pinned signing identity metadata does not match the certificate.")
     run(["/usr/bin/openssl", "x509", "-inform", "DER", "-in", STATE / "certificate.der", "-checkend", "0", "-noout"])
     return value
@@ -279,6 +281,49 @@ def signature(path, identifier, value):
     return match[1]
 
 
+def signing_targets(root):
+    """Return nested Mach-O/code bundles once, preserving vendor identifiers."""
+    magics = {b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
+              b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca"}
+    bundles, bundle_executables = {}, set()
+    for item in sorted(root.rglob("*")):
+        if not item.resolve().is_relative_to(root):
+            raise SigningError("Nested code resolves outside the application bundle.")
+        if item.is_symlink() or not item.is_dir() or item.suffix not in {".app", ".xpc", ".framework"}:
+            continue
+        metadata_path = item / ("Resources/Info.plist" if item.suffix == ".framework" else "Contents/Info.plist")
+        metadata = plistlib.loads(metadata_path.read_bytes())
+        identifier, executable = metadata.get("CFBundleIdentifier"), metadata.get("CFBundleExecutable")
+        if not isinstance(identifier, str) or not identifier or not isinstance(executable, str) or not executable or "/" in executable or executable in {".", ".."}:
+            raise SigningError("Nested code bundle has invalid identifier/executable metadata.")
+        binary = item / executable if item.suffix == ".framework" else item / "Contents/MacOS" / executable
+        if not binary.is_file() or not binary.resolve().is_relative_to(root):
+            raise SigningError("Nested code bundle executable is missing or outside the app.")
+        bundles[item] = identifier
+        bundle_executables.add(binary.resolve())
+    main = plistlib.loads((root / "Contents/Info.plist").read_bytes())["CFBundleExecutable"]
+    bundle_executables.add((root / "Contents/MacOS" / main).resolve())
+    targets = dict(bundles)
+    for item in sorted(root.rglob("*")):
+        if item.is_symlink() or not item.is_file() or item.resolve() in bundle_executables:
+            continue
+        with item.open("rb") as stream:
+            if stream.read(4) not in magics:
+                continue
+        if item.parent == root / "Contents/Resources/Frameworks" and item.suffix == ".dylib":
+            identifier = APP_ID + ".library." + item.stem
+        else:
+            # Sparkle's standalone Autoupdate identifier is part of its IPC
+            # contract. Read the vendor code signature before replacing it.
+            details = run(["/usr/bin/codesign", "--display", "--verbose=4", item])
+            match = re.search(rb"^Identifier=(.+)$", details.stdout + details.stderr, re.MULTILINE)
+            if not match:
+                raise SigningError("Nested Mach-O has no existing signing identifier.")
+            identifier = match[1].decode("utf-8")
+        targets[item] = identifier
+    return sorted(targets.items(), key=lambda item: (-len(item[0].parts), str(item[0])))
+
+
 def sign_app(path):
     value = ready()
     path = path.resolve(strict=True)
@@ -287,8 +332,10 @@ def sign_app(path):
     info = plistlib.loads((path / "Contents/Info.plist").read_bytes())
     if info.get("CFBundleIdentifier") != APP_ID:
         raise SigningError("Unexpected release bundle identifier.")
-    for library in sorted((path / "Contents/Resources/Frameworks").glob("*.dylib")):
-        signature(library, APP_ID + ".library." + library.stem, value)
+    # Sign code from the deepest helper outward. Never use --deep to sign: it
+    # can silently overwrite Sparkle's helper identifiers and bundle rules.
+    for target, identifier in signing_targets(path):
+        signature(target, identifier, value)
     requirement = signature(path, APP_ID, value)
     run(["/usr/bin/codesign", "--verify", "--deep", "--strict", path])
     print(json.dumps({"signed": True, "certificateSHA1": value["certificateSHA1"], "designatedRequirement": requirement}))

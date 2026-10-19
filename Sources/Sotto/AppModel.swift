@@ -129,6 +129,12 @@ struct AnswerTurn: Identifiable {
     var isFollowingWindow: Bool { live && conversationSelection == .automatic }
     var hasManualConversationSelection: Bool { live && conversationSelection == .manual && selectedGroup != nil }
     var needsConversationSelection: Bool { live && (conversationSelection == .unresolved || selectedGroup == nil) }
+    /// Includes stashed conversations: an updater restart must not silently
+    /// discard an answer or draft simply because another chat is selected.
+    var hasEphemeralConversationContent: Bool {
+        !question.isEmpty || !turns.isEmpty || !streamingText.isEmpty || !pendingQuestion.isEmpty ||
+            !pendingInput.isEmpty || drafts.values.contains { !$0.question.isEmpty || !$0.turns.isEmpty }
+    }
     var canAsk: Bool {
         !busy && (!live ? current != nil : selectedGroup != nil &&
             (hasManualConversationSelection || (isFollowingWindow && followState == "confirmed")))

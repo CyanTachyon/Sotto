@@ -347,6 +347,7 @@ private final class NetworkTests: PortableCheckCase {
             ("AX focused title / exact emoji and spacing / aliases / unique identity", checkFocusedTitleIdentity),
             ("automatic connection / bounded backoff / no overlap / healthy idle / deletion", checkConnectionRecovery),
             ("bubble drag containment / relative placement / screen boundaries", checkBubblePlacement),
+            ("update install / setup and generation guards / memory-only content", checkUpdatePolicy),
             ("SSE Unicode / reasoning exclusion / interrupted stream", tests.testStreamingFramingAndInterruptions),
             ("Markdown blocks / table / nested list / partial code fence", tests.testMarkdownBlocksAndIncompleteFence),
             ("time / unknown / coverage", tests.testTimeFilterInclusiveAndUnknownExcluded),

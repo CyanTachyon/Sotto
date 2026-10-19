@@ -329,6 +329,7 @@ struct SourcesView: View {
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var appearance = AppAppearanceController.shared
+    @ObservedObject var updates = AppUpdateController.disabled
     @UIState private var config = ModelConfig()
     @UIState private var key = ""
     @UIState private var consent = false
@@ -352,6 +353,7 @@ struct SettingsView: View {
                         }
                     }
                     dataSection
+                    updateSection
                 }.padding(20)
             }
         }.frame(minWidth: 440, idealWidth: 520, maxWidth: .infinity, minHeight: 360, idealHeight: 620, maxHeight: .infinity)
@@ -417,6 +419,23 @@ struct SettingsView: View {
             Text(title).font(.callout.weight(.medium))
             content().accessibilityLabel(title)
             Text(hint).font(.caption).foregroundStyle(AppTheme.textSecondary)
+        }
+    }
+    private var updateSection: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("软件更新", systemImage: "arrow.triangle.2.circlepath").font(.headline)
+                    Spacer()
+                    Button(updates.hasUpdateReminder ? "查看新版本…" : "检查更新…") { updates.checkForUpdates(nil) }.disabled(!updates.canCheckForUpdates)
+                }
+                Toggle("自动检查新版本", isOn: Binding(get: { updates.automaticallyChecksForUpdates },
+                                                     set: { updates.setAutomaticallyChecksForUpdates($0) }))
+                    .disabled(!updates.canCheckForUpdates)
+                Text(updates.status).font(.caption).foregroundStyle(AppTheme.textSecondary).lineSpacing(3)
+                Text("更新需要重新打开 Sotto。回答和草稿只保存在本次运行中，更新前请先复制需要保留的内容。")
+                    .font(.caption).foregroundStyle(AppTheme.textSecondary).lineSpacing(3)
+            }
         }
     }
     private var dataSection: some View {

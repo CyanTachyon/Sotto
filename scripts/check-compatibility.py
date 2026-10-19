@@ -105,6 +105,58 @@ def is_macho(path):
         return source.read(4) in MACHO_MAGICS
 
 
+def executable_context(path, root, commands):
+    if any(name in {"LC_MAIN", "LC_UNIXTHREAD"} for name, _ in commands):
+        return path
+    for parent in path.parents:
+        if not inside(parent, root):
+            break
+        if parent.suffix not in {".app", ".xpc"} and parent != root:
+            continue
+        info_path = parent / "Contents/Info.plist"
+        if parent == root and not info_path.exists() and parent.suffix not in {".app", ".xpc"}:
+            break
+        try:
+            info = plistlib.loads(info_path.read_bytes())
+            name = info["CFBundleExecutable"]
+            if not isinstance(name, str) or not name or "/" in name or name in {".", ".."}:
+                raise ValueError()
+            executable = parent / "Contents/MacOS" / name
+            if not inside(executable, root) or not executable.is_file():
+                raise ValueError()
+            return executable
+        except (OSError, ValueError, KeyError, TypeError):
+            raise CompatibilityError("executable_invalid", "Code bundle executable metadata is invalid.", relative(path, root))
+    # Standalone dylib fixtures use their own directory as the context.
+    return path
+
+
+def resolve_anchor(value, image, executable, root, label):
+    if value in {"@loader_path", "@executable_path"}:
+        result = image.parent if value == "@loader_path" else executable.parent
+    elif value.startswith("@loader_path/"):
+        result = image.parent / value[len("@loader_path/"):]
+    elif value.startswith("@executable_path/"):
+        result = executable.parent / value[len("@executable_path/"):]
+    else:
+        raise CompatibilityError("external_dependency", "Runpaths must use bundle-local loader or executable paths.", label)
+    if not inside(result, root):
+        raise CompatibilityError("outside_bundle", "Library/runpath resolves outside the bundle.", label)
+    return result.resolve()
+
+
+def runpaths(commands, image, executable, root, label):
+    result = []
+    for name, block in commands:
+        if name != "LC_RPATH":
+            continue
+        match = re.search(r"(?m)^\s*path (.+) \(offset \d+\)\s*$", block)
+        if not match:
+            raise CompatibilityError("runpath_unreadable", "Could not parse a library runpath.", label)
+        result.append(resolve_anchor(match[1], image, executable, root, label))
+    return result
+
+
 def verify_binary(path, bundle_root):
     """Inspect one binary without executing it; also used by --self-test."""
     label = relative(path, bundle_root)
@@ -127,6 +179,11 @@ def verify_binary(path, bundle_root):
     minimums = minimum_versions(commands, label)
     if any(version(value, label) > version(TARGET, label) for value in minimums):
         raise CompatibilityError("minimum_too_new", "Mach-O requires macOS newer than " + TARGET + ".", label)
+    executable = executable_context(path, bundle_root, commands)
+    search_paths = runpaths(commands, path, executable, bundle_root, label)
+    if executable.resolve() != path.resolve():
+        inherited = load_commands(command(["otool", "-l", str(executable)], label))
+        search_paths += runpaths(inherited, executable, executable, bundle_root, label)
     packaged_dependencies = []
     system_dependencies = 0
     for name, block in commands:
@@ -142,10 +199,20 @@ def verify_binary(path, bundle_root):
             if ".." in Path(dependency).parts:
                 raise CompatibilityError("external_dependency", "Library dependency escapes its system location.", label)
             system_dependencies += 1
-        elif dependency.startswith("@loader_path/"):
-            resolved = path.parent / dependency[len("@loader_path/"):]
-            if not inside(resolved, bundle_root):
-                raise CompatibilityError("outside_bundle", "Library dependency resolves outside the bundle.", label)
+        elif dependency.startswith(("@loader_path/", "@executable_path/", "@rpath/")):
+            if dependency.startswith("@rpath/"):
+                suffix = dependency[len("@rpath/"):]
+                candidates = [candidate / suffix for candidate in search_paths]
+                if any(not inside(candidate, bundle_root) for candidate in candidates):
+                    raise CompatibilityError("outside_bundle", "Runpath dependency resolves outside the bundle.", label)
+                matches = {candidate.resolve() for candidate in candidates if candidate.is_file()}
+                if not matches:
+                    raise CompatibilityError("dependency_missing", "Packaged runpath dependency is missing.", label)
+                if len(matches) != 1:
+                    raise CompatibilityError("dependency_ambiguous", "Runpath dependency has multiple bundle targets.", label)
+                resolved = matches.pop()
+            else:
+                resolved = resolve_anchor(dependency, path, executable, bundle_root, label)
             if not resolved.is_file():
                 raise CompatibilityError("dependency_missing", "Packaged library dependency is missing.", label)
             try:
@@ -155,7 +222,7 @@ def verify_binary(path, bundle_root):
                 raise CompatibilityError("file_unreadable", "Could not read packaged library dependency.", label)
             packaged_dependencies.append(relative(resolved.resolve(), bundle_root))
         else:
-            raise CompatibilityError("external_dependency", "Library dependency must use a system location or packaged @loader_path.", label)
+            raise CompatibilityError("external_dependency", "Library dependency must use a system location or resolve within the bundle.", label)
     return {"path": label, "architectures": architectures, "minimumMacOS": max(minimums, key=lambda value: version(value, label)),
             "systemDependencyCount": system_dependencies, "packagedDependencies": sorted(set(packaged_dependencies))}
 
@@ -189,7 +256,7 @@ def verify_app(bundle):
         if path.is_file():
             try:
                 if is_macho(path):
-                    binaries.add(path)
+                    binaries.add(path.resolve())
             except OSError:
                 raise CompatibilityError("file_unreadable", "Could not inspect bundle file.", relative(path, root))
     checks, errors = [], []

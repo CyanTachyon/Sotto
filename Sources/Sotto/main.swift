@@ -128,7 +128,7 @@ final class MainWindow: NSWindow {
     func windowWillClose(_ notification: Notification) { onClose() }
 }
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var panel: MainWindow!
     var companion: CompanionController?
     var status: NSStatusItem!
@@ -142,6 +142,7 @@ final class MainWindow: NSWindow {
     let appearancePreview = CommandLine.arguments.contains("--appearance-preview")
     var testMode: Bool { experiencePreview || appearancePreview || CommandLine.arguments.contains("--companion-window-check") || CommandLine.arguments.contains("--experience-check") || CommandLine.arguments.contains("--appearance-check") || CommandLine.arguments.contains("--ui-test") || CommandLine.arguments.contains("--synthetic-model-check") }
     lazy var model = AppModel(testMode: testMode)
+    lazy var updates = AppUpdateController(model: model, enabled: !testMode)
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The synthetic preview changes selection preferences, so require a
         // separately identified bundle before constructing its model.
@@ -160,6 +161,7 @@ final class MainWindow: NSWindow {
         // Space while the nonactivating companion moves to its host's Space.
         NSApp.setActivationPolicy(.accessory)
         NSApp.mainMenu = AppMenus.makeMainMenu()
+        _ = updates
         AppAppearanceController.shared.start()
         if testMode && !appearancePreview { createFixturePanel() }
         model.$showConnection.removeDuplicates().sink { [weak self] visible in self?.showConnection(visible) }.store(in: &observations)
@@ -171,8 +173,12 @@ final class MainWindow: NSWindow {
         menu.addItem(withTitle: "打开微信旁的伴读", action: #selector(showPanel), keyEquivalent: "")
         menu.addItem(withTitle: "连接设置…", action: #selector(connection), keyEquivalent: "")
         menu.addItem(withTitle: "外观与设置…", action: #selector(settings), keyEquivalent: ",")
+        menu.addItem(withTitle: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator()); menu.addItem(withTitle: "退出 Sotto", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items { item.target = self }; status.menu = menu
+        updates.$hasUpdateReminder.removeDuplicates().sink { [weak self] available in
+            self?.showUpdateReminder(available)
+        }.store(in: &observations)
         controlObserver = DistributedNotificationCenter.default().addObserver(forName: .init("moe.tachyon.sotto.control"), object: nil, queue: .main) { [weak self] notification in
             MainActor.assumeIsolated {
                 if let target = notification.userInfo?["bundlePath"] as? String, target != Bundle.main.bundleURL.path { return }
@@ -255,7 +261,7 @@ final class MainWindow: NSWindow {
         if visible {
             companion?.hide()
             if settingsWindow == nil {
-                settingsWindow = AuxiliaryWindow(title: "外观与设置 · Sotto", size: NSSize(width: 520, height: 620), root: AnyView(SettingsView(model: model))) { [weak self] in self?.model.showSettings = false }
+                settingsWindow = AuxiliaryWindow(title: "外观与设置 · Sotto", size: NSSize(width: 520, height: 620), root: AnyView(SettingsView(model: model, updates: updates))) { [weak self] in self?.model.showSettings = false }
             }
             settingsWindow?.present()
         } else { settingsWindow?.hide(); resumeCompanionAfterAuxiliary() }
@@ -300,6 +306,21 @@ final class MainWindow: NSWindow {
     }
     @objc func connection() { if model.showConnection { showConnection(true) } else { model.showConnection = true } }
     @objc func settings() { if model.showSettings { showSettings(true) } else { model.showSettings = true } }
+    @objc func checkForUpdates() { updates.checkForUpdates(nil) }
+    private func showUpdateReminder(_ available: Bool) {
+        let title = available ? "查看新版本…" : "检查更新…"
+        let menus = [status?.menu, NSApp.mainMenu?.items.first?.submenu].compactMap { $0 }
+        for menu in menus {
+            for item in menu.items where item.action == #selector(checkForUpdates) { item.title = title }
+        }
+        status?.button?.image = NSImage(systemSymbolName: available ? "arrow.down.circle.fill" : "bubble.left.and.text.bubble.right",
+                                       accessibilityDescription: available ? "Sotto · 发现新版本" : "Sotto")
+        status?.button?.toolTip = available ? "Sotto 发现新版本，点击菜单查看" : "Sotto"
+    }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(checkForUpdates) { return updates.canCheckForUpdates }
+        return true
+    }
     @objc func quit() {
         guard !model.initializing else { NSSound.beep(); return }
         model.showConnection = false; model.showSettings = false; model.showSources = false
@@ -307,6 +328,7 @@ final class MainWindow: NSWindow {
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if model.initializing { NSSound.beep(); return .terminateCancel }
+        if !updates.allowsApplicationTermination() { NSSound.beep(); return .terminateCancel }
         model.cancel(); return .terminateNow
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showPanel(); return true }
