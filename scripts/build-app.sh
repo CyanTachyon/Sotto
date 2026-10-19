@@ -31,7 +31,8 @@ if [ ! -f "$SOURCE_ROOT/Resources/AppIcon.icns" ]; then python3 "$SOURCE_ROOT/sc
 cp "$SOURCE_ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$BINARY_DIR/Sotto" "$APP/Contents/MacOS/Sotto"
 for name in bootstrap.py capture_keys.py reader.py sqlcipher_probe.py media.py; do cp "$SOURCE_ROOT/Backend/$name" "$APP/Contents/Resources/Backend/$name"; done
-cp "$SOURCE_ROOT/ThirdParty/"*.txt "$APP/Contents/Resources/ThirdParty/"
+cp "$SOURCE_ROOT/ThirdParty/"*.txt "$SOURCE_ROOT/ThirdParty/"*.md "$APP/Contents/Resources/ThirdParty/"
+cp "$SOURCE_ROOT/LICENSE" "$SOURCE_ROOT/NOTICE" "$APP/Contents/Resources/"
 SQLCIPHER_PREFIX="$(brew --prefix sqlcipher)"
 ZSTD_PREFIX="$(brew --prefix zstd)"
 CRYPTO_PREFIX="$(brew --prefix openssl@4)"
@@ -54,7 +55,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 <key>CFBundleShortVersionString</key><string>0.0.1</string>
-<key>CFBundleVersion</key><string>3</string>
+<key>CFBundleVersion</key><string>4</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
@@ -63,7 +64,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
-<key>NSHumanReadableCopyright</key><string>Sotto · 本机微信阅读助手</string>
+<key>NSHumanReadableCopyright</key><string>Copyright © 2026 CyanTachyon</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST

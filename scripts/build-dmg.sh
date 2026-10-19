@@ -34,11 +34,17 @@ Sotto · 安装说明
 3. 首次连接微信时，按应用内提示授予“完全磁盘访问”和“辅助功能”权限。
 
 本构建使用本机自签名身份，没有 Apple Developer ID，也没有公证。
-如果系统提示“无法验证开发者”，请在 Finder 中右键应用选择“打开”，
-或到“系统设置 → 隐私与安全性”中允许打开；不要关闭 Gatekeeper 或 SIP。
+如果系统阻止打开，请先核对下载来源，再到“系统设置 → 隐私与安全性”
+按系统提示决定是否允许打开；不要关闭 Gatekeeper 或 SIP。
 
-当前构建为 arm64、macOS 27。更新应用后，如系统重新询问权限，
-请在系统设置中移除旧条目，再重新添加当前「Sotto.app」并授权。
+当前构建要求 Apple Silicon（arm64）、macOS 27.0 及以上。
+读取数据库需要 /usr/bin/python3；首次取钥还需要 Command Line Tools / LLDB，
+且目前限定微信 4.1.15，尚未完成 macOS 27 真实账号取钥验证。
+具体连接要求与限制见发布页 README。
+
+Sotto 采用 AGPL-3.0-only。完整许可证及第三方声明位于应用包 Resources 内。
+源码、依赖源码、校验清单位于同一发布页：
+https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.1
 TEXT
 chmod 644 "$STAGING/安装说明.txt"
 
