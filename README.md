@@ -6,9 +6,9 @@ Sotto 作为菜单栏工具运行，在微信聊天窗口旁显示气泡，点�
 
 ## 下载与安装
 
-当前版本为 **0.0.2（build 5）**，面向 **Apple Silicon（arm64）、macOS 26.0 及以上**。
+当前版本为 **0.0.3（build 6）**，面向 **Apple Silicon（arm64）、macOS 26.0 及以上**。
 
-1. 从 [v0.0.2 发布页](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.2) 下载 `Sotto-0.0.2-arm64.dmg`。
+1. 从 [v0.0.3 发布页](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.3) 下载 `Sotto-0.0.3-arm64.dmg`。
 2. 打开 DMG，将「Sotto.app」拖入「Applications」，再从「应用程序」启动。
 3. 通过菜单栏 Sotto 图标打开连接与设置；微信聊天窗口可用时，也可点击窗口旁的气泡。
 
@@ -60,6 +60,7 @@ JSON 示例（虚构内容）：
 ## 日常使用
 
 - **会话跟随**：微信独立聊天窗口能唯一确认会话时自动跟随，保留名称中的 emoji、空格和标点；无法确认时需手动选择。手选仅作用于当前微信窗口，切换窗口后重新识别；识别到可确认的独立聊天窗口时会恢复自动跟随。**在微信主窗口内部切换聊天后，必须重新手选会话。**
+- **气泡位置**：按住气泡拖动可调整位置，整个气泡会保持在所属微信窗口的可见区域内，并避开顶部标题栏。各窗口在本次运行中分别记住相对位置，窗口移动或缩放后重新约束；退出后不保留。拖动松开不会打开面板。
 - **窗口行为**：点击气泡展开面板，点回微信、切换应用或切换微信窗口时收起。图片等非聊天窗口不显示气泡；没有可用微信聊天窗口时不会打开独立聊天主窗口。连接、设置和原消息查看使用辅助窗口。
 - **提问与编辑**：Return 发送，⌘Return 或 ⇧Return 换行；输入法组合输入期间先确认候选。支持多行粘贴和 macOS 标准复制、粘贴、撤销等操作。生成中可编辑下一条草稿，不能重复提交。
 - **回答**：支持 SSE 流式输出和普通 JSON 响应，可停止生成。失败或中断保留已经收到的内容，首段文字前停止会恢复问题。支持 Markdown 标题、强调、列表、引用、代码和表格；代码可复制，不执行 HTML 或加载远程图片。
@@ -90,7 +91,7 @@ JSON 示例（虚构内容）：
 
 构建需要 macOS 26 或更新的 SDK、Command Line Tools、SwiftPM、Python 3，以及系统的 make、Perl 和 Tcl。依赖脚本从固定版本的官方源码构建 SQLCipher、Zstandard、OpenSSL，统一以 arm64、macOS 26.0 为目标；不会直接复制随本机系统升级的 Homebrew 二进制。不要求安装完整 Xcode。首次构建需要联网下载依赖，也可通过 `SOTTO_DEPENDENCY_SOURCES` 指定已有的三份源码归档目录。
 
-0.0.2 源码构建使用的依赖版本为 SQLCipher 4.19.0、Zstandard（zstd）1.5.7、OpenSSL 4.0.2；对应依赖源码随同一 [Release](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.2) 的 `Sotto-0.0.2-dependency-sources.zip` 提供，详见 [ThirdParty/NOTICES.md](ThirdParty/NOTICES.md)。
+0.0.3 源码构建使用的依赖版本为 SQLCipher 4.19.0、Zstandard（zstd）1.5.7、OpenSSL 4.0.2；对应依赖源码随同一 [Release](https://github.com/CyanTachyon/Sotto/releases/tag/v0.0.3) 的 `Sotto-0.0.3-dependency-sources.zip` 提供，详见 [ThirdParty/NOTICES.md](ThirdParty/NOTICES.md)。
 
 ```sh
 ./scripts/check.sh
@@ -110,7 +111,7 @@ python3 scripts/check-compatibility.py artifacts/Sotto.app
 
 ## 当前限制
 
-0.0.2 是早期版本。此版本已使用 macOS 26 SDK 编译，运行检查在 macOS 27 上完成；尚未在 macOS 26 实机验证。已有检查覆盖核心逻辑、合成窗口、界面状态、本地读取适配器和图片解析；这些检查不能代替真实微信操作或不同 Mac 上的完整安装、权限、取钥与模型问答验证。微信版本、数据库或附件格式变化可能导致连接或解码失败。模型回答也可能出错，请结合参考记录核对。
+0.0.3 是早期版本。此版本已使用 macOS 26 SDK 编译，运行检查在 macOS 27 上完成；尚未在 macOS 26 实机验证。已有检查覆盖核心逻辑、合成窗口、界面状态、本地读取适配器和图片解析；这些检查不能代替真实微信操作或不同 Mac 上的完整安装、权限、取钥与模型问答验证。微信版本、数据库或附件格式变化可能导致连接或解码失败。模型回答也可能出错，请结合参考记录核对。
 
 ## 许可证
 

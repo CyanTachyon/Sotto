@@ -1,6 +1,6 @@
 # Third-party components
 
-These notices describe the components included in the Sotto 0.0.2 release.
+These notices describe the components included in the Sotto 0.0.3 release.
 Their original notices and licenses remain in effect for the respective code.
 Sotto's project license does not replace these notices.
 
